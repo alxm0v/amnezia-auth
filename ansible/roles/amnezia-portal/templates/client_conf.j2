@@ -1,0 +1,24 @@
+[Interface]
+# REPLACE WITH YOUR PRIVATE KEY!
+PrivateKey = REPLACE_ME_WITH_YOUR_PRIVATE_KEY
+Address = {{ item.ip }}/32
+
+[Peer]
+# AmneziaWG Captive Portal Server
+PublicKey = {{ vault.server_public_key }}
+Endpoint = {{ vpn_public_ip_or_domain }}:{{ vpn_port }}
+AllowedIPs = {{ vpn_server_ip }}/32, {{ allowed_subnets | join(', ') }}
+PersistentKeepalive = 25
+
+# AmneziaWG Obfuscation Parameters
+Jc = {{ awg_jc }}
+Jmin = {{ awg_jmin }}
+Jmax = {{ awg_jmax }}
+S1 = {{ awg_s1 }}
+S2 = {{ awg_s2 }}
+S3 = {{ awg_s3 }}
+S4 = {{ awg_s4 }}
+H1 = {{ awg_h1 }}
+H2 = {{ awg_h2 }}
+H3 = {{ awg_h3 }}
+H4 = {{ awg_h4 }}

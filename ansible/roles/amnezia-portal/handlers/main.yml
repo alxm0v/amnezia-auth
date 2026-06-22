@@ -1,0 +1,19 @@
+---
+- name: Restart awg-quick
+  systemd:
+    name: awg-quick@awg0
+    state: restarted
+
+- name: Reload systemd
+  systemd:
+    daemon_reload: yes
+
+- name: Restart amnezia-auth
+  systemd:
+    name: amnezia-auth
+    state: restarted
+
+- name: Restart amnezia-daemon
+  systemd:
+    name: amnezia-daemon
+    state: restarted

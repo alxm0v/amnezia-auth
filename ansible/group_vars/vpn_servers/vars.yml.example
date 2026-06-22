@@ -1,0 +1,29 @@
+---
+# Standard variables can go here
+authelia_internal_ip: "10.0.0.100"
+captive_portal_port: 8000
+
+# VPN Network Settings
+vpn_port: 5281
+
+# Allowed Subnets to route through the VPN
+allowed_subnets:
+  - "172.31.0.0/16"
+
+# Custom AmneziaWG Obfuscation Parameters
+awg_jc: 120
+awg_jmin: 50
+awg_jmax: 100
+awg_s1: 15
+awg_s2: 25
+awg_h1: 123456789
+awg_h2: 987654321
+awg_h3: 111222333
+awg_h4: 444555666
+
+# The public IP or domain name of this VPN server
+vpn_public_ip_or_domain: "198.51.100.1"
+
+# OIDC Configuration
+oidc_client_id: "vpn-gateway"
+oidc_discovery_url: "https://REPLACE_ME_AUTH_DOMAIN/.well-known/openid-configuration"

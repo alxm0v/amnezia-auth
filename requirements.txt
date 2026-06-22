@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+authlib
+httpx
+itsdangerous
+pydantic-settings
+jinja2

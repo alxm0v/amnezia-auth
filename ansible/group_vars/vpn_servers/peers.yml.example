@@ -1,0 +1,5 @@
+---
+vpn_peers:
+  - name: "sample_user"
+    ip: "10.0.42.5"
+    public_key: "{{ vault.peer_keys.sample_user }}"

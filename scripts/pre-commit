@@ -1,0 +1,92 @@
+#!/bin/bash
+# Autonomous Pre-Commit & CI Checks
+# Runs locally or in CI/CD without Python dependencies
+
+set -e
+
+echo "🔒 Running Amnezia Auth Security Checks..."
+
+# Check if running as pre-commit (are there staged files?)
+if git diff --cached --name-only | grep -q .; then
+    # Running as pre-commit
+    FILES_TO_CHECK=$(git diff --cached --name-only)
+    GITLEAKS_CMD="protect --staged"
+else
+    # Running as CI or manual check
+    FILES_TO_CHECK=$(git ls-files)
+    GITLEAKS_CMD="detect --source . -v"
+fi
+
+
+# 1. Prevent unencrypted vault
+VAULT_FILE="ansible/group_vars/vpn_servers/vault.yml"
+if echo "$FILES_TO_CHECK" | grep -q "$VAULT_FILE"; then
+    if [ -f "$VAULT_FILE" ] && ! grep -q "^\$ANSIBLE_VAULT;" "$VAULT_FILE"; then
+        echo "❌ ERROR: $VAULT_FILE is unencrypted!"
+        echo "Please encrypt it using 'ansible-vault encrypt $VAULT_FILE' before committing."
+        exit 1
+    fi
+fi
+
+# 2. Scan for actual WireGuard Private Keys (44 char base64 ending in '=')
+if git diff --cached -G"PrivateKey = [A-Za-z0-9+/]{43}=" --name-only | grep -q .; then
+    echo "❌ ERROR: Found an actual WireGuard 'PrivateKey' in staged files!"
+    echo "Do not commit WireGuard private keys."
+    exit 1
+fi
+
+# 3. Gitleaks Check
+GITLEAKS_VERSION="8.30.1"
+
+# Cross-platform OS detection
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+
+if [[ "$OS" == *"mingw"* ]] || [[ "$OS" == *"msys"* ]] || [[ "$OS" == *"cygwin"* ]]; then
+    GITLEAKS_OS="windows"
+    GITLEAKS_EXT="zip"
+elif [[ "$OS" == *"darwin"* ]]; then
+    GITLEAKS_OS="darwin"
+    GITLEAKS_EXT="tar.gz"
+else
+    GITLEAKS_OS="linux"
+    GITLEAKS_EXT="tar.gz"
+fi
+
+if [[ "$ARCH" == *"x86_64"* ]] || [[ "$ARCH" == *"amd64"* ]]; then
+    GITLEAKS_ARCH="x64"
+elif [[ "$ARCH" == *"aarch64"* ]] || [[ "$ARCH" == *"arm64"* ]]; then
+    GITLEAKS_ARCH="arm64"
+else
+    GITLEAKS_ARCH="x64"
+fi
+
+GITLEAKS_ARCHIVE="gitleaks_${GITLEAKS_VERSION}_${GITLEAKS_OS}_${GITLEAKS_ARCH}.${GITLEAKS_EXT}"
+GITLEAKS_URL="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${GITLEAKS_ARCHIVE}"
+
+# Check if gitleaks is already installed
+if command -v gitleaks &> /dev/null; then
+    GITLEAKS_BIN="gitleaks"
+else
+    TMP_DIR=$(mktemp -d)
+    echo "🔍 Downloading Gitleaks v${GITLEAKS_VERSION} for ${GITLEAKS_OS}..."
+    curl -sL "$GITLEAKS_URL" -o "$TMP_DIR/gitleaks_archive"
+    if [ "$GITLEAKS_EXT" = "zip" ]; then
+        unzip -q "$TMP_DIR/gitleaks_archive" -d "$TMP_DIR"
+        GITLEAKS_BIN="$TMP_DIR/gitleaks.exe"
+    else
+        tar -xzf "$TMP_DIR/gitleaks_archive" -C "$TMP_DIR" gitleaks
+        GITLEAKS_BIN="$TMP_DIR/gitleaks"
+    fi
+fi
+
+echo "🔍 Running Gitleaks scan..."
+if ! $GITLEAKS_BIN $GITLEAKS_CMD; then
+    echo "❌ ERROR: Gitleaks detected secrets!"
+    [ -n "$TMP_DIR" ] && rm -rf "$TMP_DIR"
+    exit 1
+fi
+
+[ -n "$TMP_DIR" ] && rm -rf "$TMP_DIR"
+echo "✅ All security checks passed!"
+exit 0

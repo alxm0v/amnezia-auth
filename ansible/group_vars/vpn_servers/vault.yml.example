@@ -1,0 +1,9 @@
+---
+vault:
+  server_private_key: "REPLACE_ME_SERVER_PRIVATE_KEY"
+  server_public_key: "REPLACE_ME_SERVER_PUBLIC_KEY"
+  oidc_client_secret: "REPLACE_ME_OIDC_SECRET"
+
+# Peer public keys
+  peer_keys:
+    sample_user: "sample_user_pub_key"

@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Ansible Secrets & Generated Data
+ansible/inventory.yml
+ansible/group_vars/vpn_servers/vars.yml
+ansible/group_vars/vpn_servers/peers.yml
+ansible/group_vars/vpn_servers/vault.yml
+ansible/vault_pass
+ansible/client_configs/
+
+# Temp files
+tmp/
+*.tar

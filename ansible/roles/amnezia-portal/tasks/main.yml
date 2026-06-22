@@ -1,0 +1,166 @@
+---
+- name: Add AmneziaWG PPA
+  apt_repository:
+    repo: ppa:amnezia/ppa
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: Install AmneziaWG and iptables
+  apt:
+    name:
+      - amneziawg-tools
+      - amneziawg-dkms
+      - iptables-persistent
+      - python3-venv
+      - python3-pip
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: Ensure AmneziaWG configuration directory exists
+  file:
+    path: /etc/amnezia/amneziawg
+    state: directory
+    mode: '0700'
+
+- name: Generate awg0.conf from template
+  template:
+    src: awg0.conf.j2
+    dest: /etc/amnezia/amneziawg/awg0.conf
+    mode: '0600'
+  notify: Restart awg-quick
+
+- name: Enable IPv4 forwarding
+  sysctl:
+    name: net.ipv4.ip_forward
+    value: '1'
+    sysctl_set: yes
+    state: present
+    reload: yes
+
+- name: Configure NAT masquerade for VPN clients
+  iptables:
+    table: nat
+    chain: POSTROUTING
+    source: "{{ vpn_subnet_cidr }}"
+    jump: MASQUERADE
+    comment: "NAT for VPN clients"
+
+- name: Configure Base iptables rules for Captive Portal
+  iptables:
+    chain: FORWARD
+    source: "{{ vpn_subnet_cidr }}"
+    destination: "{{ authelia_internal_ip }}"
+    jump: ACCEPT
+    comment: "Allow VPN clients to reach Authelia for OIDC login"
+
+- name: Prevent peer-to-peer communication
+  iptables:
+    chain: FORWARD
+    in_interface: "{{ vpn_interface }}"
+    out_interface: "{{ vpn_interface }}"
+    jump: DROP
+    comment: "Isolate VPN clients from each other"
+
+- name: Configure Drop rule for unauthorized VPN clients
+  iptables:
+    chain: FORWARD
+    source: "{{ vpn_subnet_cidr }}"
+    jump: DROP
+    comment: "Block all other forwarding traffic from VPN clients (Captive Portal policy)"
+
+- name: Allow Input to Captive Portal
+  iptables:
+    chain: INPUT
+    destination_port: "{{ captive_portal_port }}"
+    protocol: tcp
+    jump: ACCEPT
+    comment: "Allow VPN clients to reach Auth Service"
+
+- name: Save iptables rules
+  shell: netfilter-persistent save
+  when: ansible_os_family == "Debian"
+
+- name: Ensure /opt/amnezia-auth directory exists
+  file:
+    path: /opt/amnezia-auth
+    state: directory
+
+- name: Copy Python app source files
+  copy:
+    src: "{{ item }}"
+    dest: /opt/amnezia-auth/
+  with_fileglob:
+    - "../../../../amnezia-auth/*.py"
+    - "../../../../amnezia-auth/requirements.txt"
+  notify: 
+    - Restart amnezia-auth
+    - Restart amnezia-daemon
+
+- name: Create Python virtual environment and install requirements
+  pip:
+    requirements: /opt/amnezia-auth/requirements.txt
+    virtualenv: /opt/amnezia-auth/venv
+    virtualenv_command: python3 -m venv
+
+- name: Write .env configuration file
+  template:
+    src: env.j2
+    dest: /opt/amnezia-auth/.env
+    mode: '0600'
+  notify: 
+    - Restart amnezia-auth
+    - Restart amnezia-daemon
+
+- name: Install Systemd service for Captive Portal API
+  template:
+    src: amnezia-auth.service.j2
+    dest: /etc/systemd/system/amnezia-auth.service
+  notify: Reload systemd
+
+- name: Install Systemd service for Session Tracker Daemon
+  template:
+    src: amnezia-daemon.service.j2
+    dest: /etc/systemd/system/amnezia-daemon.service
+  notify: Reload systemd
+
+- name: Start and enable services
+  systemd:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+  with_items:
+    - awg-quick@awg0
+    - amnezia-auth
+    - amnezia-daemon
+
+- name: Install logrotate
+  apt:
+    name: logrotate
+    state: present
+  when: ansible_os_family == "Debian"
+
+- name: Configure logrotate for amnezia-auth
+  template:
+    src: logrotate.j2
+    dest: /etc/logrotate.d/amnezia-auth
+    mode: '0644'
+
+
+- name: Ensure local client_configs directory exists
+  file:
+    path: "{{ playbook_dir }}/client_configs"
+    state: directory
+    mode: '0700'
+  delegate_to: localhost
+  become: no
+  run_once: true
+
+- name: Generate client configuration templates
+  template:
+    src: client_conf.j2
+    dest: "{{ playbook_dir }}/client_configs/{{ item.name }}.conf"
+    mode: '0600'
+  loop: "{{ vpn_peers }}"
+  delegate_to: localhost
+  become: no

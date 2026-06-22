@@ -1,0 +1,5 @@
+---
+- hosts: vpn_servers
+  become: yes
+  roles:
+    - amnezia-portal
