@@ -4,7 +4,7 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 from starlette.middleware.sessions import SessionMiddleware
 from authlib.integrations.starlette_client import OAuth
 from config import settings
-from firewall import grant_access, revoke_access
+from firewall import grant_access, revoke_access, check_access
 
 import os
 
@@ -41,6 +41,14 @@ oauth.register(
 async def home(request: Request):
     user = request.session.get('user')
     if user:
+        client_ip = request.headers.get('x-forwarded-for', request.client.host)
+        if client_ip and ',' in client_ip:
+            client_ip = client_ip.split(',')[0].strip()
+            
+        if not check_access(client_ip):
+            request.session.pop('user', None)
+            return RedirectResponse(url="/login")
+
         subnets_html = "".join([f"<li>{s}</li>" for s in settings.allowed_subnets_list])
         return HTMLResponse(
             f"<h2>Authentication Successful</h2>"

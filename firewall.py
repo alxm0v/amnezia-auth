@@ -22,6 +22,21 @@ def grant_access(ip: str):
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to grant access to {ip} for {dest}: {e}")
 
+def check_access(ip: str) -> bool:
+    """Checks if the IP address currently has an iptables rule granting access."""
+    subnets = settings.allowed_subnets_list
+    iface = settings.vpn_interface
+    if not subnets:
+        return False
+    dest = subnets[0]
+    try:
+        check = subprocess.run(["iptables", "-C", "FORWARD", "-i", iface, "-s", ip, "-d", dest, "-j", "ACCEPT"], 
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return check.returncode == 0
+    except Exception as e:
+        logger.error(f"Error checking access for {ip}: {e}")
+        return False
+
 def revoke_access(ip: str):
     """Removes the iptables rule for the IP address."""
     logger.info(f"Revoking network access for {ip}")
