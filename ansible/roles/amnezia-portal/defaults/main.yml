@@ -6,17 +6,21 @@ vpn_server_ip: "10.0.42.1"
 vpn_port: 51820
 
 # AmneziaWG Parameters (Obfuscation)
-awg_jc: 128
-awg_jmin: 41
-awg_jmax: 42
-awg_s1: 0
-awg_s2: 0
-awg_s3: 0
-awg_s4: 0
-awg_h1: 3420716614
-awg_h2: 1256372134
-awg_h3: 651239846
-awg_h4: 1531398231
+awg_obfuscation_settings: |
+  Jc = 128
+  Jmin = 41
+  Jmax = 42
+  S1 = 0
+  S2 = 0
+  H1 = 3420716614
+  H2 = 1256372134
+  H3 = 651239846
+  H4 = 1531398231
+  I1 = 
+  I2 = 
+  I3 = 
+  I4 = 
+  I5 =
 
 # Server Keys (SHOULD BE OVERRIDDEN BY ANSIBLE VAULT)
 server_private_key: "REPLACE_ME_SERVER_PRIVATE_KEY"

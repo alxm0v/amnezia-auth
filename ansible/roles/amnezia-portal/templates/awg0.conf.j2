@@ -2,17 +2,7 @@
 Address = {{ vpn_server_ip }}/24
 ListenPort = {{ vpn_port }}
 PrivateKey = {{ vault.server_private_key }}
-Jc = {{ awg_jc }}
-Jmin = {{ awg_jmin }}
-Jmax = {{ awg_jmax }}
-S1 = {{ awg_s1 }}
-S2 = {{ awg_s2 }}
-S3 = {{ awg_s3 }}
-S4 = {{ awg_s4 }}
-H1 = {{ awg_h1 }}
-H2 = {{ awg_h2 }}
-H3 = {{ awg_h3 }}
-H4 = {{ awg_h4 }}
+{{ awg_obfuscation_settings }}
 
 # PostUp/PostDown to manage base firewall rules
 PostUp = iptables -I INPUT -p udp --dport {{ vpn_port }} -j ACCEPT

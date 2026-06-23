@@ -11,15 +11,21 @@ allowed_subnets:
   - "172.31.0.0/16"
 
 # Custom AmneziaWG Obfuscation Parameters
-awg_jc: 120
-awg_jmin: 50
-awg_jmax: 100
-awg_s1: 15
-awg_s2: 25
-awg_h1: 123456789
-awg_h2: 987654321
-awg_h3: 111222333
-awg_h4: 444555666
+awg_obfuscation_settings: |
+  Jc = 120
+  Jmin = 50
+  Jmax = 100
+  S1 = 15
+  S2 = 25
+  H1 = 123456789
+  H2 = 987654321
+  H3 = 111222333
+  H4 = 444555666
+  I1 = <b 0x1a2d>
+  I2 = <b 0x1a2d>
+  I3 = <b 0x1a2d>
+  I4 = <b 0x1a2d>
+  I5 = <b 0x1a2d>
 
 # The public IP or domain name of this VPN server
 vpn_public_ip_or_domain: "198.51.100.1"
