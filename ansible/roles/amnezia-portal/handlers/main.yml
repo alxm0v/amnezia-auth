@@ -1,19 +1,19 @@
 ---
 - name: Restart awg-quick
-  systemd:
+  ansible.builtin.systemd:
     name: awg-quick@awg0
     state: restarted
 
 - name: Reload systemd
-  systemd:
-    daemon_reload: yes
+  ansible.builtin.systemd:
+    daemon_reload: true
 
 - name: Restart amnezia-auth
-  systemd:
+  ansible.builtin.systemd:
     name: amnezia-auth
     state: restarted
 
 - name: Restart amnezia-daemon
-  systemd:
+  ansible.builtin.systemd:
     name: amnezia-daemon
     state: restarted

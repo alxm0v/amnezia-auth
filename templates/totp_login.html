@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login with 2FA</title>
+    <style>
+        body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f4f4f9; }
+        .container { background: white; padding: 40px 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; max-width: 350px; width: 100%; }
+        input[type="text"] { font-size: 24px; padding: 12px; width: 100%; margin: 20px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; text-align: center; letter-spacing: 5px; }
+        button { background: #007bff; color: white; border: none; padding: 12px 20px; font-size: 18px; border-radius: 4px; cursor: pointer; width: 100%; font-weight: bold; }
+        button:hover { background: #0056b3; }
+        .error { color: #d9534f; background: #fdf7f7; border: 1px solid #d9534f; padding: 10px; border-radius: 4px; margin-bottom: 15px; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Enter 2FA Code</h2>
+        <p style="color: #666; margin-bottom: 25px;">Open your authenticator app and enter the 6-digit code to access the VPN.</p>
+        
+        {% if error %}
+        <div class="error">{{ error }}</div>
+        {% endif %}
+
+        <form action="/totp-login" method="post">
+            <input type="text" name="code" placeholder="------" autocomplete="off" autofocus required pattern="\d{6}">
+            <button type="submit">Verify</button>
+        </form>
+    </div>
+</body>
+</html>

@@ -1,8 +1,8 @@
 ---
 # Network configuration
-vpn_interface: "awg0"
-vpn_subnet_cidr: "10.0.42.0/24"
-vpn_server_ip: "10.0.42.1"
+vpn_interface: awg0
+vpn_subnet_cidr: 10.0.42.0/24
+vpn_server_ip: 10.0.42.1
 vpn_port: 51820
 
 # AmneziaWG Parameters (Obfuscation)
@@ -18,25 +18,38 @@ awg_obfuscation_settings: |
   H2 = 1256372134
   H3 = 651239846
   H4 = 1531398231
-  I1 = 
-  I2 = 
-  I3 = 
-  I4 = 
+  I1 =
+  I2 =
+  I3 =
+  I4 =
   I5 =
 
 # Server Keys (SHOULD BE OVERRIDDEN BY ANSIBLE VAULT)
-server_private_key: "REPLACE_ME_SERVER_PRIVATE_KEY"
+server_private_key: REPLACE_ME_SERVER_PRIVATE_KEY
+
+# Authentication Mode: "oidc" or "totp"
+auth_mode: oidc
 
 # Pre-auth Configuration
-preauth_allowed_subnets: []  # IPs/Subnets allowed before OIDC authorization (e.g. OIDC Provider IPs)
+preauth_allowed_subnets: [] # IPs/Subnets allowed before OIDC authorization (e.g. OIDC Provider IPs)
 captive_portal_port: 8000
-oidc_client_id: "amnezia-auth"
-oidc_client_secret: "REPLACE_ME"
-oidc_discovery_url: "https://auth.dreidelpay.com/.well-known/openid-configuration"
+oidc_client_id: amnezia-auth
+oidc_client_secret: REPLACE_ME
+oidc_discovery_url: https://auth.dreidelpay.com/.well-known/openid-configuration
 
 # IaC Peer list. Each peer requires a name, static IP in the subnet, and public_key.
+# iptables_rules (allow/deny) are optional.
 vpn_peers: []
 # Example:
 # - name: "alice-laptop"
 #   ip: "10.0.42.5"
 #   public_key: "alice_pub_key_base64="
+#   iptables_rules:
+#     allow: []
+#     deny: []
+
+# Granular iptables access control
+iptables_default_policy: DROP
+iptables_global_rules:
+  allow: []
+  deny: []

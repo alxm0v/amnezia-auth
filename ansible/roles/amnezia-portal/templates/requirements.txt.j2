@@ -5,3 +5,7 @@ httpx
 itsdangerous
 pydantic-settings
 jinja2
+{% if auth_mode == 'totp' %}
+pyotp
+qrcode[pil]
+{% endif %}

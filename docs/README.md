@@ -1,5 +1,7 @@
 # AmneziaWG Captive Portal
 
+![AI Co-authored](https://img.shields.io/badge/AI-Co--Authored-blueviolet?style=for-the-badge&logo=openai&logoColor=white)
+
 This project provides a Captive Portal authentication layer and session management daemon for AmneziaWG (WireGuard with obfuscation).
 
 It is designed to be fully manageable via Infrastructure as Code (Ansible) and integrates with any standard OIDC provider (like Authelia, Keycloak, Authentik).
@@ -8,8 +10,10 @@ It is designed to be fully manageable via Infrastructure as Code (Ansible) and i
 
 The system consists of three main components:
 1. **AmneziaWG Server**: Provides the encrypted VPN tunnel. Traffic is blocked by default until authenticated.
-2. **Captive Portal Web Service (FastAPI)**: An OIDC client. Users navigate to the portal through the VPN and authenticate. Upon successful login, their IP is granted access to the configured `allowed_subnets` via `iptables`.
-3. **Session Tracker Daemon**: A background Python process that monitors `iptables` FORWARD chains for network activity. It automatically revokes access for inactive peers (default: 900 seconds) or peers exceeding the maximum session length (default: 28800 seconds).
+2. **Captive Portal Web Service (FastAPI)**: An OIDC client. Users navigate to the portal through the VPN and authenticate. Upon successful login, their IP is dynamically granted an active session in the `AMNEZIA_AUTH` iptables chain.
+3. **Session Tracker Daemon**: A background Python process that monitors `iptables` chains for network activity. It automatically revokes access for inactive peers or peers exceeding the maximum session length.
+
+**Note on Access Control**: The Captive Portal manages *authentication* (sessions), but granular *authorization* (which subnets a user can access) is managed statically by Ansible. See [FIREWALL.md](FIREWALL.md) for details on the network access control architecture.
 
 ## Deployment
 

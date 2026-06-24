@@ -11,6 +11,13 @@ vpn_port: 5281
 allowed_subnets:
   - "172.31.0.0/16"
 
+# Granular iptables access control
+iptables_default_policy: "DROP"
+iptables_global_rules:
+  allow:
+    - "172.31.0.0/16"
+  deny: []
+
 # Custom AmneziaWG Obfuscation Parameters
 awg_obfuscation_settings: |
   Jc = 120

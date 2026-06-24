@@ -1,12 +1,12 @@
 ---
 - name: Add AmneziaWG PPA
-  apt_repository:
+  ansible.builtin.apt_repository:
     repo: ppa:amnezia/ppa
     state: present
   when: ansible_os_family == "Debian"
 
 - name: Install AmneziaWG and iptables
-  apt:
+  ansible.builtin.apt:
     name:
       - amneziawg-tools
       - amneziawg-dkms
@@ -14,121 +14,236 @@
       - python3-venv
       - python3-pip
     state: present
-    update_cache: yes
+    update_cache: true
   when: ansible_os_family == "Debian"
 
 - name: Ensure AmneziaWG configuration directory exists
-  file:
+  ansible.builtin.file:
     path: /etc/amnezia/amneziawg
     state: directory
-    mode: '0700'
+    mode: "0700"
 
 - name: Generate awg0.conf from template
-  template:
+  ansible.builtin.template:
     src: awg0.conf.j2
     dest: /etc/amnezia/amneziawg/awg0.conf
-    mode: '0600'
+    mode: "0600"
   notify: Restart awg-quick
 
 - name: Enable IPv4 forwarding
-  sysctl:
+  ansible.posix.sysctl:
     name: net.ipv4.ip_forward
-    value: '1'
-    sysctl_set: yes
+    value: "1"
+    sysctl_set: true
     state: present
-    reload: yes
+    reload: true
 
 - name: Configure NAT masquerade for VPN clients
-  iptables:
+  ansible.builtin.iptables:
     table: nat
     chain: POSTROUTING
     source: "{{ vpn_subnet_cidr }}"
     jump: MASQUERADE
-    comment: "NAT for VPN clients"
+    comment: NAT for VPN clients
 
-- name: Configure Base iptables rules for pre-auth subnets
-  iptables:
-    chain: FORWARD
+- name: Create custom iptables chains
+  ansible.builtin.command: iptables -N {{ item }}
+  loop:
+    - AMNEZIA_FORWARD
+    - AMNEZIA_AUTH
+    - VPN_RULES
+  register: create_chains
+  failed_when: create_chains.rc != 0 and 'Chain already exists' not in create_chains.stderr
+  changed_when: create_chains.rc == 0
+
+- name: Flush chains for idempotency
+  ansible.builtin.command: iptables -F {{ item }}
+  loop:
+    - AMNEZIA_FORWARD
+    - VPN_RULES
+  changed_when: true
+
+- name: Populate AMNEZIA_AUTH with pre-auth subnets
+  ansible.builtin.iptables:
+    chain: AMNEZIA_AUTH
     source: "{{ vpn_subnet_cidr }}"
     destination: "{{ item }}"
     jump: ACCEPT
-    comment: "Allow VPN clients to reach pre-auth resources"
+    comment: Allow VPN clients to reach pre-auth resources
   loop: "{{ preauth_allowed_subnets | default([]) }}"
 
+- name: Populate VPN_RULES with user individual DENY
+  ansible.builtin.iptables:
+    chain: VPN_RULES
+    source: "{{ item.0.ip }}"
+    destination: "{{ item.1 }}"
+    jump: DROP
+    comment: Individual Deny for {{ item.0.name }}
+  with_subelements:
+    - "{{ vpn_peers }}"
+    - iptables_rules.deny
+    - skip_missing: true
+
+- name: Populate VPN_RULES with user individual ACCEPT
+  ansible.builtin.iptables:
+    chain: VPN_RULES
+    source: "{{ item.0.ip }}"
+    destination: "{{ item.1 }}"
+    jump: ACCEPT
+    comment: Individual Accept for {{ item.0.name }}
+  with_subelements:
+    - "{{ vpn_peers }}"
+    - iptables_rules.allow
+    - skip_missing: true
+
+- name: Populate VPN_RULES with global DENY
+  ansible.builtin.iptables:
+    chain: VPN_RULES
+    source: "{{ vpn_subnet_cidr }}"
+    destination: "{{ item }}"
+    jump: DROP
+    comment: Global Deny
+  loop: "{{ iptables_global_rules.deny | default([]) }}"
+
+- name: Populate VPN_RULES with global ACCEPT
+  ansible.builtin.iptables:
+    chain: VPN_RULES
+    source: "{{ vpn_subnet_cidr }}"
+    destination: "{{ item }}"
+    jump: ACCEPT
+    comment: Global Accept
+  loop: "{{ iptables_global_rules.allow | default([]) }}"
+
+- name: Apply Default Policy in VPN_RULES
+  ansible.builtin.iptables:
+    chain: VPN_RULES
+    source: "{{ vpn_subnet_cidr }}"
+    jump: "{{ iptables_default_policy }}"
+    comment: Default policy for VPN_RULES
+
 - name: Prevent peer-to-peer communication
-  iptables:
-    chain: FORWARD
+  ansible.builtin.iptables:
+    chain: AMNEZIA_FORWARD
     in_interface: "{{ vpn_interface }}"
     out_interface: "{{ vpn_interface }}"
     jump: DROP
-    comment: "Isolate VPN clients from each other"
+    comment: Isolate VPN clients from each other
+
+- name: Link AMNEZIA_FORWARD to AMNEZIA_AUTH
+  ansible.builtin.iptables:
+    chain: AMNEZIA_FORWARD
+    source: "{{ vpn_subnet_cidr }}"
+    jump: AMNEZIA_AUTH
+    comment: Send VPN traffic to Auth chain
 
 - name: Configure Drop rule for unauthorized VPN clients
-  iptables:
-    chain: FORWARD
+  ansible.builtin.iptables:
+    chain: AMNEZIA_FORWARD
     source: "{{ vpn_subnet_cidr }}"
     jump: DROP
-    comment: "Block all other forwarding traffic from VPN clients (Captive Portal policy)"
+    comment: Block all other forwarding traffic from VPN clients (Captive Portal policy)
+
+- name: Route all VPN traffic to our custom chains
+  ansible.builtin.iptables:
+    chain: FORWARD
+    source: "{{ vpn_subnet_cidr }}"
+    jump: AMNEZIA_FORWARD
+    action: insert
+    rule_num: "1"
+    comment: Route all VPN traffic to our custom chains
 
 - name: Allow Input to Captive Portal
-  iptables:
+  ansible.builtin.iptables:
     chain: INPUT
     destination_port: "{{ captive_portal_port }}"
     protocol: tcp
     jump: ACCEPT
-    comment: "Allow VPN clients to reach Auth Service"
+    comment: Allow VPN clients to reach Auth Service
 
 - name: Save iptables rules
-  shell: netfilter-persistent save
+  ansible.builtin.command: netfilter-persistent save
   when: ansible_os_family == "Debian"
+  changed_when: false
 
 - name: Ensure /opt/amnezia-auth directory exists
-  file:
+  ansible.builtin.file:
     path: /opt/amnezia-auth
     state: directory
+    mode: "0755"
 
-- name: Copy Python app source files
-  copy:
-    src: "{{ item }}"
-    dest: /opt/amnezia-auth/
-  with_fileglob:
-    - "../../../../amnezia-auth/*.py"
-    - "../../../../amnezia-auth/requirements.txt"
-  notify: 
+- name: Copy core Python app source files
+  ansible.builtin.copy:
+    src: ../../../../amnezia-auth/{{ item }}
+    dest: /opt/amnezia-auth/{{ item }}
+    mode: "0644"
+  with_items:
+    - config.py
+    - daemon.py
+    - firewall.py
+    - main.py
+  notify:
     - Restart amnezia-auth
     - Restart amnezia-daemon
 
+- name: Create templates directory
+  ansible.builtin.file:
+    path: /opt/amnezia-auth/templates
+    state: directory
+    mode: "0755"
+  when: auth_mode == "totp"
+
+- name: Copy TOTP specific files
+  ansible.builtin.copy:
+    src: ../../../../amnezia-auth/{{ item }}
+    dest: /opt/amnezia-auth/{{ item }}
+    mode: "0644"
+  with_items:
+    - totp_routes.py
+    - templates/totp_setup.html
+    - templates/totp_login.html
+  when: auth_mode == "totp"
+  notify:
+    - Restart amnezia-auth
+
+- name: Generate requirements.txt
+  ansible.builtin.template:
+    src: requirements.txt.j2
+    dest: /opt/amnezia-auth/requirements.txt
+    mode: "0644"
+
 - name: Create Python virtual environment and install requirements
-  pip:
+  ansible.builtin.pip:
     requirements: /opt/amnezia-auth/requirements.txt
     virtualenv: /opt/amnezia-auth/venv
     virtualenv_command: python3 -m venv
 
 - name: Write .env configuration file
-  template:
+  ansible.builtin.template:
     src: env.j2
     dest: /opt/amnezia-auth/.env
-    mode: '0600'
-  notify: 
+    mode: "0600"
+  notify:
     - Restart amnezia-auth
     - Restart amnezia-daemon
 
 - name: Install Systemd service for Captive Portal API
-  template:
+  ansible.builtin.template:
     src: amnezia-auth.service.j2
     dest: /etc/systemd/system/amnezia-auth.service
+    mode: "0644"
   notify: Reload systemd
 
 - name: Install Systemd service for Session Tracker Daemon
-  template:
+  ansible.builtin.template:
     src: amnezia-daemon.service.j2
     dest: /etc/systemd/system/amnezia-daemon.service
+    mode: "0644"
   notify: Reload systemd
 
 - name: Start and enable services
-  systemd:
+  ansible.builtin.systemd:
     name: "{{ item }}"
-    enabled: yes
+    enabled: true
     state: started
   with_items:
     - awg-quick@awg0
@@ -136,32 +251,31 @@
     - amnezia-daemon
 
 - name: Install logrotate
-  apt:
+  ansible.builtin.apt:
     name: logrotate
     state: present
   when: ansible_os_family == "Debian"
 
 - name: Configure logrotate for amnezia-auth
-  template:
+  ansible.builtin.template:
     src: logrotate.j2
     dest: /etc/logrotate.d/amnezia-auth
-    mode: '0644'
-
+    mode: "0644"
 
 - name: Ensure local client_configs directory exists
-  file:
+  ansible.builtin.file:
     path: "{{ playbook_dir }}/client_configs"
     state: directory
-    mode: '0700'
+    mode: "0700"
   delegate_to: localhost
-  become: no
+  become: false
   run_once: true
 
 - name: Generate client configuration templates
-  template:
+  ansible.builtin.template:
     src: client_conf.j2
     dest: "{{ playbook_dir }}/client_configs/{{ item.name }}.conf"
-    mode: '0600'
+    mode: "0600"
   loop: "{{ vpn_peers }}"
   delegate_to: localhost
-  become: no
+  become: false

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup 2FA</title>
+    <style>
+        body { font-family: Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f4f4f9; }
+        .container { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center; max-width: 400px; }
+        img { max-width: 100%; height: auto; }
+        input[type="text"] { font-size: 18px; padding: 10px; width: 100%; margin: 15px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; text-align: center; letter-spacing: 2px;}
+        button { background: #007bff; color: white; border: none; padding: 12px 20px; font-size: 16px; border-radius: 4px; cursor: pointer; width: 100%; }
+        button:hover { background: #0056b3; }
+        .secret-text { font-family: monospace; background: #eee; padding: 5px; border-radius: 4px; display: inline-block; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Setup 2FA (TOTP)</h2>
+        <p>1. Scan this QR code with Google Authenticator or Authy:</p>
+        <img src="data:image/png;base64,{{ qr_b64 }}" alt="QR Code">
+        <p style="font-size: 14px; color: #666;">Or enter this secret manually: <br><span class="secret-text">{{ secret }}</span></p>
+        <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;">
+        <p>2. Enter the 6-digit code to confirm:</p>
+        <form action="/totp-login" method="post">
+            <input type="text" name="code" placeholder="000000" autocomplete="off" required pattern="\d{6}">
+            <button type="submit">Verify & Login</button>
+        </form>
+    </div>
+</body>
+</html>

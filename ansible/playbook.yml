@@ -1,5 +1,6 @@
 ---
-- hosts: vpn_servers
-  become: yes
+- name: Deploy AmneziaWG VPN Gateway
+  hosts: vpn_servers
+  become: true
   roles:
     - amnezia-portal
