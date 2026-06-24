@@ -1,6 +1,7 @@
 ---
 # Standard variables can go here
-authelia_internal_ip: "10.0.0.100"
+# Subnets/IPs allowed BEFORE authorization (e.g. OIDC Provider, DNS)
+preauth_allowed_subnets: []
 captive_portal_port: 8000
 
 # VPN Network Settings

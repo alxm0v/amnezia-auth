@@ -46,13 +46,14 @@
     jump: MASQUERADE
     comment: "NAT for VPN clients"
 
-- name: Configure Base iptables rules for Captive Portal
+- name: Configure Base iptables rules for pre-auth subnets
   iptables:
     chain: FORWARD
     source: "{{ vpn_subnet_cidr }}"
-    destination: "{{ authelia_internal_ip }}"
+    destination: "{{ item }}"
     jump: ACCEPT
-    comment: "Allow VPN clients to reach Authelia for OIDC login"
+    comment: "Allow VPN clients to reach pre-auth resources"
+  loop: "{{ preauth_allowed_subnets | default([]) }}"
 
 - name: Prevent peer-to-peer communication
   iptables:

@@ -27,8 +27,8 @@ awg_obfuscation_settings: |
 # Server Keys (SHOULD BE OVERRIDDEN BY ANSIBLE VAULT)
 server_private_key: "REPLACE_ME_SERVER_PRIVATE_KEY"
 
-# Authelia & Captive Portal Configuration
-authelia_internal_ip: "10.0.0.100"  # Replace with actual Authelia internal IP
+# Pre-auth Configuration
+preauth_allowed_subnets: []  # IPs/Subnets allowed before OIDC authorization (e.g. OIDC Provider IPs)
 captive_portal_port: 8000
 oidc_client_id: "amnezia-auth"
 oidc_client_secret: "REPLACE_ME"
