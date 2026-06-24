@@ -12,6 +12,8 @@ awg_obfuscation_settings: |
   Jmax = 42
   S1 = 0
   S2 = 0
+  S3 = 0
+  S4 = 0
   H1 = 3420716614
   H2 = 1256372134
   H3 = 651239846
