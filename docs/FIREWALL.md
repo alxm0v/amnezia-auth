@@ -10,16 +10,18 @@ The project splits access control into two distinct layers:
 
 ## The 3-Tier iptables Architecture
 
-When a packet arrives from a VPN client, it traverses the `FORWARD` chain through three layers:
+To guarantee strict idempotency and avoid conflicts with other software (like Docker), the global `FORWARD` chain contains only a single rule at the very top (`-I FORWARD 1`) that routes all VPN traffic into our custom layers.
 
-### Layer 1: `FORWARD` Chain (The Entrypoint)
-- **Pre-Auth**: Allows access to global pre-auth subnets (e.g., DNS, OIDC Provider IPs) defined in `preauth_allowed_subnets`.
-- **Gatekeeper**: Forwards all other traffic from the VPN subnet to the `AMNEZIA_AUTH` chain.
-- **Default Drop**: If a packet returns from `AMNEZIA_AUTH` without being accepted, it is dropped.
+### Layer 1: `AMNEZIA_FORWARD` Chain (The Entrypoint)
+This chain is flushed and rebuilt dynamically by Ansible on every run.
+- **Isolate Clients**: Drops peer-to-peer traffic between VPN clients.
+- **Gatekeeper**: Forwards all remaining VPN traffic to the `AMNEZIA_AUTH` chain.
+- **Default Drop**: If a packet returns from `AMNEZIA_AUTH` without being accepted (i.e., user is not authenticated), it is dropped.
 
 ### Layer 2: `AMNEZIA_AUTH` Chain (The Session Gate)
-This chain is managed **dynamically** by the Python `amnezia-auth` service.
-- When a user logs in successfully, their IP is added to this chain: `-A AMNEZIA_AUTH -s <IP> -j VPN_RULES`.
+This chain handles both pre-auth access and dynamic user sessions.
+- **Pre-Auth**: Contains static rules allowing unauthenticated access to `preauth_allowed_subnets` (e.g., DNS, OIDC Providers).
+- **Active Sessions**: Managed **dynamically** by the Python `amnezia-auth` service. When a user logs in successfully, their IP is added: `-A AMNEZIA_AUTH -s <IP> -j VPN_RULES`.
 - This means: "If the user is authenticated, forward their traffic to `VPN_RULES` for granular checks."
 - When the session times out, the daemon deletes this rule, instantly cutting off all access.
 

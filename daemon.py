@@ -27,14 +27,14 @@ class SessionTracker:
         self.db_path = "/opt/amnezia-auth/sessions.db"
 
     def parse_iptables_counters(self):
-        """Runs iptables-save -c and parses FORWARD chain byte counters per IP."""
+        """Runs iptables-save -c and parses AMNEZIA_AUTH chain byte counters per IP."""
         import re
         peers = {}
         try:
             result = subprocess.run(["iptables-save", "-c"], capture_output=True, text=True, check=True)
-            # Regex to match: [pkts:bytes] -A FORWARD ... -s 10.0.42.5/32
+            # Regex to match: [pkts:bytes] -A AMNEZIA_AUTH ... -s 10.0.42.5/32
             # We specifically want to match rules that grant access.
-            pattern = re.compile(r'\[\d+:(\d+)\] -A FORWARD .*?-s ([\d\.]+)/32')
+            pattern = re.compile(r'\[\d+:(\d+)\] -A AMNEZIA_AUTH .*?-s ([\d\.]+)/32')
             
             for line in result.stdout.strip().split('\n'):
                 match = pattern.search(line)
