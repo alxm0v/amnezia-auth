@@ -3,6 +3,14 @@
 # Subnets/IPs allowed BEFORE authorization (e.g. OIDC Provider, DNS)
 preauth_allowed_subnets: []
 captive_portal_port: 8000
+# Authentication Mode (can be 'totp' or 'oidc')
+auth_mode: "totp"
+
+# Network Audit Logging
+logging_settings:
+  enable_audit_logging: true
+  enable_kernel_connection_logging: false
+  handshake_silence_threshold_seconds: 3600
 
 # VPN Network Settings
 vpn_port: 5281
@@ -38,7 +46,15 @@ awg_obfuscation_settings: |
   I5 = <b 0x1a2d>
 
 # The public IP or domain name of this VPN server
-vpn_public_ip_or_domain: "198.51.100.1"
+vpn_public_ip_or_domain: "1.2.3.4"
+
+# Fail2Ban Configuration
+fail2ban:
+  portal_maxretry: 10
+  portal_findtime: 60
+  portal_bantime: 3600
+  sshd_maxretry: 5
+  sshd_bantime: 3600
 
 # OIDC Configuration
 oidc_client_id: "vpn-gateway"

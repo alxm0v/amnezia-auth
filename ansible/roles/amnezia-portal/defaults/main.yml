@@ -5,6 +5,13 @@ vpn_subnet_cidr: 10.0.42.0/24
 vpn_server_ip: 10.0.42.1
 vpn_port: 51820
 
+# Application Configuration
+app_install_dir: /opt/amnezia-auth
+
+# Repository Configuration
+amnezia_ppa_key_url: "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x75C9DD72C799870E310542E24166F2C257290828"
+amnezia_ppa_repo_url: "https://ppa.launchpadcontent.net/amnezia/ppa/ubuntu"
+
 # AmneziaWG Parameters (Obfuscation)
 awg_obfuscation_settings: |
   Jc = 128
@@ -53,3 +60,17 @@ iptables_default_policy: DROP
 iptables_global_rules:
   allow: []
   deny: []
+
+# Audit Logging Configuration
+logging_settings:
+  enable_audit_logging: true
+  enable_kernel_connection_logging: false
+  handshake_silence_threshold_seconds: 3600
+
+# Fail2Ban Configuration
+fail2ban:
+  portal_maxretry: 10
+  portal_findtime: 60
+  portal_bantime: 3600
+  sshd_maxretry: 5
+  sshd_bantime: 3600

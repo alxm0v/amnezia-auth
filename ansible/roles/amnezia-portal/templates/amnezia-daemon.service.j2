@@ -3,9 +3,9 @@ Description=AmneziaWG Session Tracking Daemon
 After=network.target amnezia-auth.service
 
 [Service]
-User=root
-WorkingDirectory=/opt/amnezia-auth
-ExecStart=/opt/amnezia-auth/venv/bin/python daemon.py
+User=amnezia-daemon
+WorkingDirectory={{ app_install_dir }}
+ExecStart={{ app_install_dir }}/venv/bin/python daemon.py
 Restart=always
 
 [Install]

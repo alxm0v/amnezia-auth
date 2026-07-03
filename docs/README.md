@@ -10,8 +10,8 @@ It is designed to be fully manageable via Infrastructure as Code (Ansible) and i
 
 The system consists of three main components:
 1. **AmneziaWG Server**: Provides the encrypted VPN tunnel. Traffic is blocked by default until authenticated.
-2. **Captive Portal Web Service (FastAPI)**: An OIDC client. Users navigate to the portal through the VPN and authenticate. Upon successful login, their IP is dynamically granted an active session in the `AMNEZIA_AUTH` iptables chain.
-3. **Session Tracker Daemon**: A background Python process that monitors `iptables` chains for network activity. It automatically revokes access for inactive peers or peers exceeding the maximum session length.
+2. **Captive Portal Web Service (FastAPI)**: An OIDC client running as an unprivileged user. Users navigate to the portal through the VPN and authenticate. Upon successful login, it requests the daemon to grant access.
+3. **Session Tracker & Firewall Daemon**: An isolated background process with strictly limited `sudo` privileges. It modifies the `AMNEZIA_AUTH` iptables chain to grant access, monitors for network activity, and automatically revokes access for inactive peers.
 
 **Note on Access Control**: The Captive Portal manages *authentication* (sessions), but granular *authorization* (which subnets a user can access) is managed statically by Ansible. See [FIREWALL.md](FIREWALL.md) for details on the network access control architecture.
 
@@ -45,4 +45,6 @@ git config core.hooksPath scripts
 
 ## Security & Auditing (PCI DSS)
 
-All critical events (login successes, OIDC errors, logouts, timeouts) are logged to `/var/log/amnezia-auth/audit.log` for SIEM integration and auditing compliance. Log rotation is configured automatically.
+The project provides dual-level auditing configured via `logging_settings` in `vars.yml`:
+1. **Captive Portal Audit Logs** (`enable_audit_logging: true`): Tracks authentication events, session timeouts, and periodic WireGuard handshakes. Written to `/var/log/amnezia-auth/audit.log` for SIEM integration.
+2. **Network Connection Logs** (`enable_kernel_connection_logging: true`): Tracks all new outgoing TCP/UDP flows initiated through the VPN. This is managed directly by the Linux kernel via iptables `LOG` target and written to the kernel ring buffer (`dmesg` / `/var/log/syslog`).

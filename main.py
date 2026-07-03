@@ -11,15 +11,22 @@ import os
 log_dir = "/var/log/amnezia-auth"
 os.makedirs(log_dir, exist_ok=True)
 
+# Configure root logger (for Uvicorn, httpx, and general app logs)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(f"{log_dir}/audit.log"),
+        logging.FileHandler(f"{log_dir}/uvicorn.log"),
         logging.StreamHandler()
     ]
 )
+
+# Configure dedicated audit logger
 logger = logging.getLogger("audit")
+logger.propagate = False  # Prevent audit logs from duplicating into uvicorn.log
+audit_handler = logging.FileHandler(f"{log_dir}/audit.log")
+audit_handler.setFormatter(logging.Formatter('%(asctime)s - audit - %(levelname)s - %(message)s'))
+logger.addHandler(audit_handler)
 
 app = FastAPI(title="AmneziaWG Captive Portal")
 
@@ -30,21 +37,26 @@ app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
 @app.get("/success")
 async def success_page(request: Request):
     user = request.session.get('user')
-    if user:
-        client_ip = request.headers.get('x-forwarded-for', request.client.host)
-        if client_ip and ',' in client_ip:
-            client_ip = client_ip.split(',')[0].strip()
-            
-        if not check_access(client_ip):
-            request.session.pop('user', None)
-            return RedirectResponse(url="/")
+    authenticated = request.session.get('authenticated')
+    client_ip = request.headers.get('x-forwarded-for', request.client.host)
+    if client_ip and ',' in client_ip:
+        client_ip = client_ip.split(',')[0].strip()
+        
+    if not (user or authenticated):
+        if check_access(client_ip):
+            revoke_access(client_ip)
+        return RedirectResponse(url="/")
 
-        return HTMLResponse(
-            f"<h2>Authentication Successful</h2>"
-            f"<p>Your session is active. You may now access the internal network.</p>"
-            f"<a href='/logout'>Logout</a>"
-        )
-    return RedirectResponse(url="/")
+    if not check_access(client_ip):
+        # Daemon revoked access due to timeout, or server rebooted
+        request.session.clear()
+        return RedirectResponse(url="/")
+
+    return HTMLResponse(
+        f"<h2>Authentication Successful</h2>"
+        f"<p>Your session is active. You may now access the internal network.</p>"
+        f"<a href='/logout'>Logout</a>"
+    )
 
 @app.get("/logout")
 async def logout(request: Request):
@@ -52,7 +64,7 @@ async def logout(request: Request):
     if client_ip and ',' in client_ip:
         client_ip = client_ip.split(',')[0].strip()
 
-    request.session.pop('user', None)
+    request.session.clear()
     logger.info(f"AUDIT_LOGOUT: User logged out manually from IP {client_ip}")
     revoke_access(client_ip)
     return RedirectResponse(url="/")
@@ -77,8 +89,19 @@ else:
     @app.get("/")
     async def home(request: Request):
         user = request.session.get('user')
+        client_ip = request.headers.get('x-forwarded-for', request.client.host)
+        if client_ip and ',' in client_ip:
+            client_ip = client_ip.split(',')[0].strip()
+            
         if user:
+            if not check_access(client_ip):
+                request.session.clear()
+                return RedirectResponse(url="/")
             return RedirectResponse(url="/success")
+            
+        if check_access(client_ip):
+            revoke_access(client_ip)
+            
         return HTMLResponse(
             "<h2>VPN Captive Portal</h2>"
             "<p>Please login to access the network.</p>"
@@ -97,13 +120,27 @@ else:
         try:
             token = await oauth.authelia.authorize_access_token(request)
             user = token.get('userinfo')
+            
             if user:
+                # If only 'sub' is present (common in ID tokens), fetch full profile from UserInfo endpoint
+                if 'preferred_username' not in user and 'name' not in user and 'email' not in user:
+                    try:
+                        full_user = await oauth.authelia.userinfo(token=token)
+                        if full_user:
+                            # user is usually an authlib UserInfo object, converting to dict
+                            user = dict(user)
+                            user.update(dict(full_user))
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch full userinfo from OIDC provider: {e}")
+
+                logger.debug(f"OIDC_DEBUG_USERINFO: {dict(user)}")
                 request.session['user'] = dict(user)
+                
                 client_ip = request.headers.get('x-forwarded-for', request.client.host)
                 if client_ip and ',' in client_ip:
                     client_ip = client_ip.split(',')[0].strip()
                     
-                username = user.get('preferred_username', user.get('sub'))
+                username = user.get('preferred_username') or user.get('name') or user.get('email') or user.get('sub')
                 logger.info(f"AUDIT_LOGIN_SUCCESS: User '{username}' successfully authenticated from IP {client_ip}")
                 grant_access(client_ip)
                 return RedirectResponse(url="/success")

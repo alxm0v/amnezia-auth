@@ -8,7 +8,7 @@ from fastapi import APIRouter, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from config import settings
-from firewall import grant_access
+from firewall import grant_access, check_access
 import logging
 
 logger = logging.getLogger("audit")
@@ -39,13 +39,38 @@ def get_client_ip(request: Request):
         client_ip = client_ip.split(',')[0].strip()
     return client_ip
 
+def get_peer_name(ip):
+    try:
+        conf_path = f"/etc/amnezia/amneziawg/{settings.vpn_interface}.conf"
+        with open(conf_path, "r") as f:
+            lines = f.readlines()
+        
+        current_name = "Unknown"
+        for line in lines:
+            line = line.strip()
+            if line.startswith("# ") and not line.startswith("# Post") and not line.startswith("# Pre"):
+                current_name = line[2:]
+            elif line.startswith(f"AllowedIPs = {ip}/"):
+                return current_name
+    except Exception as e:
+        logger.error(f"Failed to parse peer name for {ip}: {e}")
+    return "Unknown"
+
 @router.get("/")
 async def totp_home(request: Request):
-    user = request.session.get('user')
-    if user:
-        return RedirectResponse(url="/success")
-
     client_ip = get_client_ip(request)
+    user = request.session.get('user')
+    
+    # If the user has a cookie session, they are authenticated
+    if user:
+        if not check_access(client_ip):
+            request.session.clear()
+            return RedirectResponse(url="/")
+        return RedirectResponse(url="/success")
+        
+    # User has no session cookie. If firewall is open, revoke it (session is source of truth).
+    if check_access(client_ip):
+        revoke_access(client_ip)
     secrets = load_secrets()
     
     if client_ip not in secrets:
@@ -57,16 +82,18 @@ async def totp_home(request: Request):
             
         # Generate QR code
         totp = pyotp.TOTP(secret)
-        uri = totp.provisioning_uri(name=f"VPN ({client_ip})", issuer_name="AmneziaWG Portal")
+        peer_name = get_peer_name(client_ip)
+        account_name = settings.totp_account_name_template.format(peer_name=peer_name, peer_ip=client_ip)
+        uri = totp.provisioning_uri(name=account_name, issuer_name=settings.totp_issuer_name)
         
         qr = qrcode.make(uri)
         buf = io.BytesIO()
         qr.save(buf, format="PNG")
         qr_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
         
-        return templates.TemplateResponse("totp_setup.html", {"request": request, "qr_b64": qr_b64, "secret": secret})
+        return templates.TemplateResponse(request=request, name="totp_setup.html", context={"qr_b64": qr_b64, "secret": secret})
     else:
-        return templates.TemplateResponse("totp_login.html", {"request": request})
+        return templates.TemplateResponse(request=request, name="totp_login.html")
 
 @router.post("/totp-login")
 async def totp_login(request: Request, code: str = Form(...)):
@@ -102,4 +129,4 @@ async def totp_login(request: Request, code: str = Form(...)):
         if is_setup:
             return HTMLResponse("<h2>Invalid Code</h2><p>Please go back and try again.</p><a href='/'>Back</a>")
         else:
-            return templates.TemplateResponse("totp_login.html", {"request": request, "error": "Invalid code. Please try again."})
+            return templates.TemplateResponse(request=request, name="totp_login.html", context={"error": "Invalid code. Please try again."})

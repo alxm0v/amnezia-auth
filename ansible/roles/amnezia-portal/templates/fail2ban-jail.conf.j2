@@ -1,0 +1,15 @@
+[amnezia-portal]
+enabled = true
+filter = amnezia-portal
+backend = systemd
+journalmatch = _SYSTEMD_UNIT=amnezia-auth.service
+banaction = iptables-allports
+maxretry = {{ fail2ban.portal_maxretry }}
+findtime = {{ fail2ban.portal_findtime }}
+bantime = {{ fail2ban.portal_bantime }}
+
+[sshd]
+enabled = true
+banaction = iptables-multiport
+maxretry = {{ fail2ban.sshd_maxretry }}
+bantime = {{ fail2ban.sshd_bantime }}

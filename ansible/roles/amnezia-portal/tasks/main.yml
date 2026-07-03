@@ -1,8 +1,33 @@
 ---
+- name: Ensure keyrings directory exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+  when: ansible_os_family == "Debian"
+
+- name: Fetch AmneziaWG PPA GPG key
+  ansible.builtin.get_url:
+    url: "{{ amnezia_ppa_key_url }}"
+    dest: /etc/apt/keyrings/amneziawg.asc
+    mode: '0644'
+  when: ansible_os_family == "Debian"
+
+- name: Determine Ubuntu release codename for Amnezia PPA
+  ansible.builtin.set_fact:
+    amnezia_ppa_release: "{{ ansible_distribution_release }}"
+  when: ansible_os_family == "Debian"
+
+- name: Override Amnezia PPA codename for Resolute (26.04) fallback to Noble
+  ansible.builtin.set_fact:
+    amnezia_ppa_release: "noble"
+  when: ansible_os_family == "Debian" and ansible_distribution_release == "resolute"
+
 - name: Add AmneziaWG PPA
   ansible.builtin.apt_repository:
-    repo: ppa:amnezia/ppa
+    repo: "deb [signed-by=/etc/apt/keyrings/amneziawg.asc] {{ amnezia_ppa_repo_url }} {{ amnezia_ppa_release }} main"
     state: present
+    filename: amneziawg
   when: ansible_os_family == "Debian"
 
 - name: Install AmneziaWG and iptables
@@ -45,6 +70,7 @@
     source: "{{ vpn_subnet_cidr }}"
     jump: MASQUERADE
     comment: NAT for VPN clients
+  notify: Save iptables rules
 
 - name: Create custom iptables chains
   ansible.builtin.command: iptables -N {{ item }}
@@ -57,11 +83,22 @@
   changed_when: create_chains.rc == 0
 
 - name: Flush chains for idempotency
-  ansible.builtin.command: iptables -F {{ item }}
+  ansible.builtin.iptables:
+    chain: "{{ item }}"
+    flush: true
   loop:
     - AMNEZIA_FORWARD
     - VPN_RULES
-  changed_when: true
+
+- name: Enable connection logging for new VPN flows
+  ansible.builtin.iptables:
+    chain: VPN_RULES
+    match: conntrack
+    ctstate: NEW
+    jump: LOG
+    log_prefix: "VPN_FLOW: "
+  when: logging_settings.enable_kernel_connection_logging | default(false)
+  notify: Save iptables rules
 
 - name: Populate AMNEZIA_AUTH with pre-auth subnets
   ansible.builtin.iptables:
@@ -71,6 +108,7 @@
     jump: ACCEPT
     comment: Allow VPN clients to reach pre-auth resources
   loop: "{{ preauth_allowed_subnets | default([]) }}"
+  notify: Save iptables rules
 
 - name: Populate VPN_RULES with user individual DENY
   ansible.builtin.iptables:
@@ -83,6 +121,7 @@
     - "{{ vpn_peers }}"
     - iptables_rules.deny
     - skip_missing: true
+  notify: Save iptables rules
 
 - name: Populate VPN_RULES with user individual ACCEPT
   ansible.builtin.iptables:
@@ -95,6 +134,7 @@
     - "{{ vpn_peers }}"
     - iptables_rules.allow
     - skip_missing: true
+  notify: Save iptables rules
 
 - name: Populate VPN_RULES with global DENY
   ansible.builtin.iptables:
@@ -104,6 +144,7 @@
     jump: DROP
     comment: Global Deny
   loop: "{{ iptables_global_rules.deny | default([]) }}"
+  notify: Save iptables rules
 
 - name: Populate VPN_RULES with global ACCEPT
   ansible.builtin.iptables:
@@ -113,6 +154,7 @@
     jump: ACCEPT
     comment: Global Accept
   loop: "{{ iptables_global_rules.allow | default([]) }}"
+  notify: Save iptables rules
 
 - name: Apply Default Policy in VPN_RULES
   ansible.builtin.iptables:
@@ -120,6 +162,7 @@
     source: "{{ vpn_subnet_cidr }}"
     jump: "{{ iptables_default_policy }}"
     comment: Default policy for VPN_RULES
+  notify: Save iptables rules
 
 - name: Prevent peer-to-peer communication
   ansible.builtin.iptables:
@@ -128,6 +171,7 @@
     out_interface: "{{ vpn_interface }}"
     jump: DROP
     comment: Isolate VPN clients from each other
+  notify: Save iptables rules
 
 - name: Link AMNEZIA_FORWARD to AMNEZIA_AUTH
   ansible.builtin.iptables:
@@ -135,6 +179,7 @@
     source: "{{ vpn_subnet_cidr }}"
     jump: AMNEZIA_AUTH
     comment: Send VPN traffic to Auth chain
+  notify: Save iptables rules
 
 - name: Configure Drop rule for unauthorized VPN clients
   ansible.builtin.iptables:
@@ -142,6 +187,7 @@
     source: "{{ vpn_subnet_cidr }}"
     jump: DROP
     comment: Block all other forwarding traffic from VPN clients (Captive Portal policy)
+  notify: Save iptables rules
 
 - name: Route all VPN traffic to our custom chains
   ansible.builtin.iptables:
@@ -151,30 +197,81 @@
     action: insert
     rule_num: "1"
     comment: Route all VPN traffic to our custom chains
+  notify: Save iptables rules
 
 - name: Allow Input to Captive Portal
   ansible.builtin.iptables:
     chain: INPUT
+    source: "{{ vpn_subnet_cidr }}"
     destination_port: "{{ captive_portal_port }}"
     protocol: tcp
     jump: ACCEPT
     comment: Allow VPN clients to reach Auth Service
+  notify: Save iptables rules
 
-- name: Save iptables rules
-  ansible.builtin.command: netfilter-persistent save
-  when: ansible_os_family == "Debian"
-  changed_when: false
+- name: Create amnezia-auth group
+  ansible.builtin.group:
+    name: amnezia-auth
+    system: true
 
-- name: Ensure /opt/amnezia-auth directory exists
+- name: Create amnezia-auth user
+  ansible.builtin.user:
+    name: amnezia-auth
+    group: amnezia-auth
+    system: true
+    shell: /bin/false
+    home: "{{ app_install_dir }}"
+
+- name: Create amnezia-daemon user
+  ansible.builtin.user:
+    name: amnezia-daemon
+    group: amnezia-auth
+    system: true
+    shell: /bin/false
+    home: "{{ app_install_dir }}"
+
+- name: Configure sudoers for amnezia-daemon
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/amnezia-daemon
+    content: |
+      amnezia-daemon ALL=(root) NOPASSWD: /sbin/iptables, /sbin/iptables-save, /usr/bin/awg, /bin/cat /etc/amnezia/amneziawg/awg0.conf
+    mode: '0440'
+    validate: 'visudo -cf %s'
+
+- name: Ensure log directory exists
   ansible.builtin.file:
-    path: /opt/amnezia-auth
+    path: /var/log/amnezia-auth
     state: directory
-    mode: "0755"
+    owner: amnezia-auth
+    group: amnezia-auth
+    mode: '0775'
+    recurse: true
+
+- name: Ensure log files exist with shared permissions
+  ansible.builtin.file:
+    path: "/var/log/amnezia-auth/{{ item }}"
+    state: touch
+    owner: amnezia-auth
+    group: amnezia-auth
+    mode: '0664'
+  loop:
+    - audit.log
+    - daemon.log
+    - uvicorn.log
+
+- name: Ensure app_install_dir directory exists
+  ansible.builtin.file:
+    path: "{{ app_install_dir }}"
+    state: directory
+    owner: amnezia-auth
+    group: amnezia-auth
+    mode: "0775"
+    recurse: true
 
 - name: Copy core Python app source files
   ansible.builtin.copy:
-    src: ../../../../amnezia-auth/{{ item }}
-    dest: /opt/amnezia-auth/{{ item }}
+    src: "{{ playbook_dir }}/../{{ item }}"
+    dest: "{{ app_install_dir }}/{{ item }}"
     mode: "0644"
   with_items:
     - config.py
@@ -187,15 +284,15 @@
 
 - name: Create templates directory
   ansible.builtin.file:
-    path: /opt/amnezia-auth/templates
+    path: "{{ app_install_dir }}/templates"
     state: directory
     mode: "0755"
   when: auth_mode == "totp"
 
 - name: Copy TOTP specific files
   ansible.builtin.copy:
-    src: ../../../../amnezia-auth/{{ item }}
-    dest: /opt/amnezia-auth/{{ item }}
+    src: "{{ playbook_dir }}/../{{ item }}"
+    dest: "{{ app_install_dir }}/{{ item }}"
     mode: "0644"
   with_items:
     - totp_routes.py
@@ -208,20 +305,22 @@
 - name: Generate requirements.txt
   ansible.builtin.template:
     src: requirements.txt.j2
-    dest: /opt/amnezia-auth/requirements.txt
+    dest: "{{ app_install_dir }}/requirements.txt"
     mode: "0644"
 
 - name: Create Python virtual environment and install requirements
   ansible.builtin.pip:
-    requirements: /opt/amnezia-auth/requirements.txt
-    virtualenv: /opt/amnezia-auth/venv
+    requirements: "{{ app_install_dir }}/requirements.txt"
+    virtualenv: "{{ app_install_dir }}/venv"
     virtualenv_command: python3 -m venv
 
 - name: Write .env configuration file
   ansible.builtin.template:
     src: env.j2
-    dest: /opt/amnezia-auth/.env
-    mode: "0600"
+    dest: "{{ app_install_dir }}/.env"
+    owner: amnezia-auth
+    group: amnezia-auth
+    mode: "0640"
   notify:
     - Restart amnezia-auth
     - Restart amnezia-daemon
@@ -279,3 +378,29 @@
   loop: "{{ vpn_peers }}"
   delegate_to: localhost
   become: false
+
+- name: Install fail2ban
+  ansible.builtin.apt:
+    name: fail2ban
+    state: present
+    update_cache: true
+
+- name: Configure Fail2Ban filter for amnezia-portal
+  ansible.builtin.template:
+    src: fail2ban-filter.conf.j2
+    dest: /etc/fail2ban/filter.d/amnezia-portal.conf
+    mode: '0644'
+  notify: Restart fail2ban
+
+- name: Configure Fail2Ban jail
+  ansible.builtin.template:
+    src: fail2ban-jail.conf.j2
+    dest: /etc/fail2ban/jail.local
+    mode: '0644'
+  notify: Restart fail2ban
+
+- name: Start and enable fail2ban service
+  ansible.builtin.systemd:
+    name: fail2ban
+    state: started
+    enabled: true

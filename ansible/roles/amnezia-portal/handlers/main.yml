@@ -17,3 +17,13 @@
   ansible.builtin.systemd:
     name: amnezia-daemon
     state: restarted
+
+- name: Save iptables rules
+  ansible.builtin.command: netfilter-persistent save
+  changed_when: true
+  when: ansible_os_family == "Debian"
+
+- name: Restart fail2ban
+  ansible.builtin.systemd:
+    name: fail2ban
+    state: restarted
