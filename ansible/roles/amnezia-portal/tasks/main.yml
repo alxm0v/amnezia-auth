@@ -110,19 +110,6 @@
   loop: "{{ preauth_allowed_subnets | default([]) }}"
   notify: Save iptables rules
 
-- name: Populate VPN_RULES with user individual DENY
-  ansible.builtin.iptables:
-    chain: VPN_RULES
-    source: "{{ item.0.ip }}"
-    destination: "{{ item.1 }}"
-    jump: DROP
-    comment: Individual Deny for {{ item.0.name }}
-  with_subelements:
-    - "{{ vpn_peers }}"
-    - iptables_rules.deny
-    - skip_missing: true
-  notify: Save iptables rules
-
 - name: Populate VPN_RULES with user individual ACCEPT
   ansible.builtin.iptables:
     chain: VPN_RULES
@@ -136,14 +123,17 @@
     - skip_missing: true
   notify: Save iptables rules
 
-- name: Populate VPN_RULES with global DENY
+- name: Populate VPN_RULES with user individual DENY
   ansible.builtin.iptables:
     chain: VPN_RULES
-    source: "{{ vpn_subnet_cidr }}"
-    destination: "{{ item }}"
+    source: "{{ item.0.ip }}"
+    destination: "{{ item.1 }}"
     jump: DROP
-    comment: Global Deny
-  loop: "{{ iptables_global_rules.deny | default([]) }}"
+    comment: Individual Deny for {{ item.0.name }}
+  with_subelements:
+    - "{{ vpn_peers }}"
+    - iptables_rules.deny
+    - skip_missing: true
   notify: Save iptables rules
 
 - name: Populate VPN_RULES with global ACCEPT
@@ -154,6 +144,16 @@
     jump: ACCEPT
     comment: Global Accept
   loop: "{{ iptables_global_rules.allow | default([]) }}"
+  notify: Save iptables rules
+
+- name: Populate VPN_RULES with global DENY
+  ansible.builtin.iptables:
+    chain: VPN_RULES
+    source: "{{ vpn_subnet_cidr }}"
+    destination: "{{ item }}"
+    jump: DROP
+    comment: Global Deny
+  loop: "{{ iptables_global_rules.deny | default([]) }}"
   notify: Save iptables rules
 
 - name: Apply Default Policy in VPN_RULES

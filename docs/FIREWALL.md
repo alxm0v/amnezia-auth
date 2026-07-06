@@ -29,10 +29,10 @@ This chain handles both pre-auth access and dynamic user sessions.
 This chain is managed **statically** by Ansible during deployment. It evaluates traffic for authenticated users.
 
 Rules are applied in the following strict priority order (top to bottom):
-1. **Individual User Deny**: Blocks specific subnets for a specific user (defined in `vpn_peers[].iptables_rules.deny`).
-2. **Individual User Allow**: Allows specific subnets for a specific user (defined in `vpn_peers[].iptables_rules.allow`).
-3. **Global Deny**: Blocks specific subnets for everyone (defined in `iptables_global_rules.deny`).
-4. **Global Allow**: Allows specific subnets for everyone (defined in `iptables_global_rules.allow`).
+1. **Individual User Allow**: Allows specific subnets for a specific user (defined in `vpn_peers[].iptables_rules.allow`).
+2. **Individual User Deny**: Blocks specific subnets for a specific user (defined in `vpn_peers[].iptables_rules.deny`).
+3. **Global Allow**: Allows specific subnets for everyone (defined in `iptables_global_rules.allow`).
+4. **Global Deny**: Blocks specific subnets for everyone (defined in `iptables_global_rules.deny`).
 5. **Default Policy**: A fallback rule applied to any traffic that didn't match the above lists (defined by `iptables_default_policy`, usually `DROP` or `ACCEPT`).
 
 ## Examples
@@ -81,4 +81,4 @@ vpn_peers:
         - 10.0.5.15/32 # ...except this one specific staging server.
 ```
 
-*Note: Since individual `deny` is evaluated before individual `allow`, if a subnet overlaps, the `deny` takes precedence.*
+*Note: Since individual `allow` is evaluated before individual `deny`, if a subnet overlaps, the `allow` takes precedence. This makes it possible to block a huge subnet but poke holes for specific servers within it.*
