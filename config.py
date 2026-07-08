@@ -5,6 +5,8 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     secret_key: str
+    daemon_api_key_path: str = "/run/amnezia-daemon/api.key"
+    use_reverse_proxy: bool = False
     auth_mode: str = "oidc"
     oidc_client_id: str | None = None
     oidc_client_secret: str | None = None

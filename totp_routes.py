@@ -4,6 +4,7 @@ import io
 import base64
 import pyotp
 import qrcode
+from filelock import FileLock
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -19,24 +20,30 @@ router = APIRouter()
 templates = Jinja2Templates(directory="templates")
 
 def load_secrets():
-    if os.path.exists(settings.totp_secrets_file):
-        with open(settings.totp_secrets_file, "r") as f:
-            try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                return {}
-    return {}
+    lock = FileLock(settings.totp_secrets_file + ".lock")
+    with lock:
+        if os.path.exists(settings.totp_secrets_file):
+            with open(settings.totp_secrets_file, "r") as f:
+                try:
+                    return json.load(f)
+                except json.JSONDecodeError:
+                    return {}
+        return {}
 
 def save_secrets(secrets):
     # Ensure dir exists
     os.makedirs(os.path.dirname(settings.totp_secrets_file), exist_ok=True)
-    with open(settings.totp_secrets_file, "w") as f:
-        json.dump(secrets, f)
+    lock = FileLock(settings.totp_secrets_file + ".lock")
+    with lock:
+        with open(settings.totp_secrets_file, "w") as f:
+            json.dump(secrets, f)
 
 def get_client_ip(request: Request):
-    client_ip = request.headers.get('x-forwarded-for', request.client.host)
-    if client_ip and ',' in client_ip:
-        client_ip = client_ip.split(',')[0].strip()
+    client_ip = request.client.host
+    if settings.use_reverse_proxy:
+        xff = request.headers.get('x-forwarded-for')
+        if xff:
+            client_ip = xff.split(',')[0].strip()
     return client_ip
 
 def get_peer_name(ip):

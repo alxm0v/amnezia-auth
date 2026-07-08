@@ -6,6 +6,8 @@ After=network.target amnezia-auth.service
 User=amnezia-daemon
 WorkingDirectory={{ app_install_dir }}
 ExecStart={{ app_install_dir }}/venv/bin/python daemon.py
+RuntimeDirectory=amnezia-daemon
+RuntimeDirectoryMode=0750
 Restart=always
 
 [Install]

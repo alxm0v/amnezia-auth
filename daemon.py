@@ -6,19 +6,27 @@ from config import settings
 import os
 import shelve
 import asyncio
-from fastapi import FastAPI, HTTPException
+import secrets
+from ipaddress import IPv4Address
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException, Depends, Security
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import uvicorn
 
 log_dir = "/var/log/amnezia-auth"
-os.makedirs(log_dir, exist_ok=True)
+try:
+    os.makedirs(log_dir, exist_ok=True)
+except PermissionError:
+    pass
+
+log_handlers = [logging.StreamHandler()]
+if os.path.exists(log_dir):
+    log_handlers.append(logging.FileHandler(f"{log_dir}/daemon.log"))
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(f"{log_dir}/daemon.log"),
-        logging.StreamHandler()
-    ]
+    handlers=log_handlers
 )
 
 logger = logging.getLogger("audit_daemon")
@@ -26,11 +34,39 @@ logger = logging.getLogger("audit_daemon")
 audit_logger = logging.getLogger("audit_external")
 audit_logger.setLevel(logging.INFO)
 if not audit_logger.handlers:
-    audit_handler = logging.FileHandler(f"{log_dir}/audit.log")
-    audit_handler.setFormatter(logging.Formatter('%(asctime)s - audit - %(levelname)s - %(message)s'))
-    audit_logger.addHandler(audit_handler)
+    if os.path.exists(log_dir):
+        audit_handler = logging.FileHandler(f"{log_dir}/audit.log")
+        audit_handler.setFormatter(logging.Formatter('%(asctime)s - audit - %(levelname)s - %(message)s'))
+        audit_logger.addHandler(audit_handler)
 
-app = FastAPI(title="AmneziaWG Auth Daemon API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(tracker.run_loop())
+    yield
+    task.cancel()
+
+app = FastAPI(title="AmneziaWG Auth Daemon API", lifespan=lifespan)
+security = HTTPBearer()
+
+DAEMON_API_KEY = os.environ.get("DAEMON_API_KEY") or secrets.token_urlsafe(32)
+
+try:
+    os.makedirs(os.path.dirname(settings.daemon_api_key_path), exist_ok=True)
+    with open(settings.daemon_api_key_path, "w") as f:
+        f.write(DAEMON_API_KEY)
+    os.chmod(settings.daemon_api_key_path, 0o640)
+except Exception as e:
+    logger.warning(f"Could not write daemon API key to {settings.daemon_api_key_path}: {e}")
+
+def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    if credentials.credentials != DAEMON_API_KEY:
+        logger.warning(f"AUDIT_UNAUTHORIZED: Invalid daemon API key used")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid API Key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return credentials.credentials
 
 # Sudo wrappers for firewall management
 def daemon_grant_access(ip: str):
@@ -45,21 +81,23 @@ def daemon_check_access(ip: str) -> bool:
     result = subprocess.run(["sudo", "-n", "/sbin/iptables", "-C", "AMNEZIA_AUTH", "-s", f"{ip}/32", "-j", "ACCEPT"], capture_output=True)
     return result.returncode == 0
 
-@app.post("/grant")
-def api_grant(ip: str):
-    if not daemon_check_access(ip):
-        daemon_grant_access(ip)
+@app.post("/grant", dependencies=[Depends(verify_api_key)])
+def api_grant(ip: IPv4Address):
+    ip_str = str(ip)
+    if not daemon_check_access(ip_str):
+        daemon_grant_access(ip_str)
     return {"status": "ok"}
 
-@app.post("/revoke")
-def api_revoke(ip: str):
-    if daemon_check_access(ip):
-        daemon_revoke_access(ip)
+@app.post("/revoke", dependencies=[Depends(verify_api_key)])
+def api_revoke(ip: IPv4Address):
+    ip_str = str(ip)
+    if daemon_check_access(ip_str):
+        daemon_revoke_access(ip_str)
     return {"status": "ok"}
 
-@app.get("/check")
-def api_check(ip: str):
-    return {"access": daemon_check_access(ip)}
+@app.get("/check", dependencies=[Depends(verify_api_key)])
+def api_check(ip: IPv4Address):
+    return {"access": daemon_check_access(str(ip))}
 
 class WireGuardTracker:
     def __init__(self):
@@ -117,12 +155,11 @@ class WireGuardTracker:
                         db[ip] = {'handshake': latest_handshake, 'endpoint': public_ip}
                     else:
                         saved = db[ip]
-                        time_diff = latest_handshake - saved['handshake']
-                        if time_diff > settings.handshake_silence_threshold_seconds or saved['endpoint'] != public_ip:
+                        if saved['endpoint'] != public_ip:
                             if settings.enable_audit_logging:
                                 logger.info(f"AUDIT_VPN_HANDSHAKE: Peer '{peer_name}' ({ip}) connected from Public IP {public_ip}")
                                 audit_logger.info(f"AUDIT_VPN_HANDSHAKE: Peer '{peer_name}' ({ip}) connected from Public IP {public_ip}")
-                            db[ip] = {'handshake': latest_handshake, 'endpoint': public_ip}
+                        db[ip] = {'handshake': latest_handshake, 'endpoint': public_ip}
         except Exception as e:
             logger.error(f"Failed to check handshakes: {e}")
 
@@ -205,10 +242,6 @@ class SessionTracker:
             await asyncio.sleep(60)
 
 tracker = SessionTracker()
-
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(tracker.run_loop())
 
 if __name__ == "__main__":
     uvicorn.run("daemon:app", host="127.0.0.1", port=9000, reload=False)

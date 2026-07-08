@@ -40,6 +40,7 @@ auth_mode: oidc
 # Pre-auth Configuration
 preauth_allowed_subnets: [] # IPs/Subnets allowed before OIDC authorization (e.g. OIDC Provider IPs)
 captive_portal_port: 8000
+use_reverse_proxy: false
 oidc_client_id: amnezia-auth
 oidc_client_secret: REPLACE_ME
 oidc_discovery_url: https://auth.dreidelpay.com/.well-known/openid-configuration

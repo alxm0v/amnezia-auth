@@ -9,24 +9,29 @@ from firewall import grant_access, revoke_access, check_access
 import os
 
 log_dir = "/var/log/amnezia-auth"
-os.makedirs(log_dir, exist_ok=True)
+try:
+    os.makedirs(log_dir, exist_ok=True)
+except PermissionError:
+    pass
+
+log_handlers = [logging.StreamHandler()]
+if os.path.exists(log_dir):
+    log_handlers.append(logging.FileHandler(f"{log_dir}/uvicorn.log"))
 
 # Configure root logger (for Uvicorn, httpx, and general app logs)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(f"{log_dir}/uvicorn.log"),
-        logging.StreamHandler()
-    ]
+    handlers=log_handlers
 )
 
 # Configure dedicated audit logger
 logger = logging.getLogger("audit")
 logger.propagate = False  # Prevent audit logs from duplicating into uvicorn.log
-audit_handler = logging.FileHandler(f"{log_dir}/audit.log")
-audit_handler.setFormatter(logging.Formatter('%(asctime)s - audit - %(levelname)s - %(message)s'))
-logger.addHandler(audit_handler)
+if os.path.exists(log_dir):
+    audit_handler = logging.FileHandler(f"{log_dir}/audit.log")
+    audit_handler.setFormatter(logging.Formatter('%(asctime)s - audit - %(levelname)s - %(message)s'))
+    logger.addHandler(audit_handler)
 
 app = FastAPI(title="AmneziaWG Captive Portal")
 
@@ -38,9 +43,11 @@ app.add_middleware(SessionMiddleware, secret_key=settings.secret_key)
 async def success_page(request: Request):
     user = request.session.get('user')
     authenticated = request.session.get('authenticated')
-    client_ip = request.headers.get('x-forwarded-for', request.client.host)
-    if client_ip and ',' in client_ip:
-        client_ip = client_ip.split(',')[0].strip()
+    client_ip = request.client.host
+    if settings.use_reverse_proxy:
+        xff = request.headers.get('x-forwarded-for')
+        if xff:
+            client_ip = xff.split(',')[0].strip()
         
     if not (user or authenticated):
         if check_access(client_ip):
@@ -60,9 +67,11 @@ async def success_page(request: Request):
 
 @app.get("/logout")
 async def logout(request: Request):
-    client_ip = request.headers.get('x-forwarded-for', request.client.host)
-    if client_ip and ',' in client_ip:
-        client_ip = client_ip.split(',')[0].strip()
+    client_ip = request.client.host
+    if settings.use_reverse_proxy:
+        xff = request.headers.get('x-forwarded-for')
+        if xff:
+            client_ip = xff.split(',')[0].strip()
 
     request.session.clear()
     logger.info(f"AUDIT_LOGOUT: User logged out manually from IP {client_ip}")
@@ -89,9 +98,11 @@ else:
     @app.get("/")
     async def home(request: Request):
         user = request.session.get('user')
-        client_ip = request.headers.get('x-forwarded-for', request.client.host)
-        if client_ip and ',' in client_ip:
-            client_ip = client_ip.split(',')[0].strip()
+        client_ip = request.client.host
+        if settings.use_reverse_proxy:
+            xff = request.headers.get('x-forwarded-for')
+            if xff:
+                client_ip = xff.split(',')[0].strip()
             
         if user:
             if not check_access(client_ip):
@@ -136,9 +147,11 @@ else:
                 logger.debug(f"OIDC_DEBUG_USERINFO: {dict(user)}")
                 request.session['user'] = dict(user)
                 
-                client_ip = request.headers.get('x-forwarded-for', request.client.host)
-                if client_ip and ',' in client_ip:
-                    client_ip = client_ip.split(',')[0].strip()
+                client_ip = request.client.host
+                if settings.use_reverse_proxy:
+                    xff = request.headers.get('x-forwarded-for')
+                    if xff:
+                        client_ip = xff.split(',')[0].strip()
                     
                 username = user.get('preferred_username') or user.get('name') or user.get('email') or user.get('sub')
                 logger.info(f"AUDIT_LOGIN_SUCCESS: User '{username}' successfully authenticated from IP {client_ip}")

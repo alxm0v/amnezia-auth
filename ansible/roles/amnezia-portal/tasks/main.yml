@@ -4,31 +4,35 @@
     path: /etc/apt/keyrings
     state: directory
     mode: '0755'
-  when: ansible_os_family == "Debian"
+  when: ansible_facts['os_family'] == "Debian"
 
 - name: Fetch AmneziaWG PPA GPG key
   ansible.builtin.get_url:
     url: "{{ amnezia_ppa_key_url }}"
     dest: /etc/apt/keyrings/amneziawg.asc
     mode: '0644'
-  when: ansible_os_family == "Debian"
+  when: ansible_facts['os_family'] == "Debian"
 
 - name: Determine Ubuntu release codename for Amnezia PPA
   ansible.builtin.set_fact:
-    amnezia_ppa_release: "{{ ansible_distribution_release }}"
-  when: ansible_os_family == "Debian"
+    amnezia_ppa_release: "{{ ansible_facts['distribution_release'] }}"
+  when: ansible_facts['os_family'] == "Debian"
 
 - name: Override Amnezia PPA codename for Resolute (26.04) fallback to Noble
   ansible.builtin.set_fact:
     amnezia_ppa_release: "noble"
-  when: ansible_os_family == "Debian" and ansible_distribution_release == "resolute"
+  when: ansible_facts['os_family'] == "Debian" and ansible_facts['distribution_release'] == "resolute"
 
 - name: Add AmneziaWG PPA
-  ansible.builtin.apt_repository:
-    repo: "deb [signed-by=/etc/apt/keyrings/amneziawg.asc] {{ amnezia_ppa_repo_url }} {{ amnezia_ppa_release }} main"
+  ansible.builtin.deb822_repository:
+    name: amneziawg
+    types: deb
+    uris: "{{ amnezia_ppa_repo_url }}"
+    suites: "{{ amnezia_ppa_release }}"
+    components: main
+    signed_by: /etc/apt/keyrings/amneziawg.asc
     state: present
-    filename: amneziawg
-  when: ansible_os_family == "Debian"
+  when: ansible_facts['os_family'] == "Debian"
 
 - name: Install AmneziaWG and iptables
   ansible.builtin.apt:
@@ -40,7 +44,7 @@
       - python3-pip
     state: present
     update_cache: true
-  when: ansible_os_family == "Debian"
+  when: ansible_facts['os_family'] == "Debian"
 
 - name: Ensure AmneziaWG configuration directory exists
   ansible.builtin.file:
@@ -353,7 +357,7 @@
   ansible.builtin.apt:
     name: logrotate
     state: present
-  when: ansible_os_family == "Debian"
+  when: ansible_facts['os_family'] == "Debian"
 
 - name: Configure logrotate for amnezia-auth
   ansible.builtin.template:
