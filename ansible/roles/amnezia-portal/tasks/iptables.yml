@@ -1,0 +1,154 @@
+---
+- name: Enable IPv4 forwarding
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    sysctl_set: true
+    state: present
+    reload: true
+
+- name: Configure NAT masquerade for VPN clients
+  ansible.builtin.iptables:
+    table: nat
+    chain: POSTROUTING
+    source: "{{ vpn_subnet_cidr }}"
+    jump: MASQUERADE
+    comment: NAT for VPN clients
+  notify: Save iptables rules
+
+- name: Create custom iptables chains
+  ansible.builtin.command: iptables -N {{ item }}
+  loop:
+    - AMNEZIA_FORWARD
+    - AMNEZIA_AUTH
+    - VPN_RULES
+  register: create_chains
+  failed_when: create_chains.rc != 0 and 'Chain already exists' not in create_chains.stderr
+  changed_when: create_chains.rc == 0
+
+- name: Flush chains for idempotency
+  ansible.builtin.iptables:
+    chain: "{{ item }}"
+    flush: true
+  loop:
+    - AMNEZIA_FORWARD
+    - VPN_RULES
+
+- name: Enable connection logging for new VPN flows
+  ansible.builtin.iptables:
+    chain: VPN_RULES
+    match: conntrack
+    ctstate: NEW
+    jump: LOG
+    log_prefix: "VPN_FLOW: "
+  when: logging_settings.enable_kernel_connection_logging | default(false)
+  notify: Save iptables rules
+
+- name: Populate AMNEZIA_AUTH with pre-auth subnets
+  ansible.builtin.iptables:
+    chain: AMNEZIA_AUTH
+    source: "{{ vpn_subnet_cidr }}"
+    destination: "{{ item }}"
+    jump: ACCEPT
+    comment: Allow VPN clients to reach pre-auth resources
+  loop: "{{ preauth_allowed_subnets | default([]) }}"
+  notify: Save iptables rules
+
+- name: Populate VPN_RULES with user individual ACCEPT
+  ansible.builtin.iptables:
+    chain: VPN_RULES
+    source: "{{ item.0.ip }}"
+    destination: "{{ item.1 }}"
+    jump: ACCEPT
+    comment: Individual Accept for {{ item.0.name }}
+  with_subelements:
+    - "{{ vpn_peers }}"
+    - iptables_rules.allow
+    - skip_missing: true
+  notify: Save iptables rules
+
+- name: Populate VPN_RULES with user individual DENY
+  ansible.builtin.iptables:
+    chain: VPN_RULES
+    source: "{{ item.0.ip }}"
+    destination: "{{ item.1 }}"
+    jump: DROP
+    comment: Individual Deny for {{ item.0.name }}
+  with_subelements:
+    - "{{ vpn_peers }}"
+    - iptables_rules.deny
+    - skip_missing: true
+  notify: Save iptables rules
+
+- name: Populate VPN_RULES with global ACCEPT
+  ansible.builtin.iptables:
+    chain: VPN_RULES
+    source: "{{ vpn_subnet_cidr }}"
+    destination: "{{ item }}"
+    jump: ACCEPT
+    comment: Global Accept
+  loop: "{{ iptables_global_rules.allow | default([]) }}"
+  notify: Save iptables rules
+
+- name: Populate VPN_RULES with global DENY
+  ansible.builtin.iptables:
+    chain: VPN_RULES
+    source: "{{ vpn_subnet_cidr }}"
+    destination: "{{ item }}"
+    jump: DROP
+    comment: Global Deny
+  loop: "{{ iptables_global_rules.deny | default([]) }}"
+  notify: Save iptables rules
+
+- name: Apply Default Policy in VPN_RULES
+  ansible.builtin.iptables:
+    chain: VPN_RULES
+    source: "{{ vpn_subnet_cidr }}"
+    jump: "{{ iptables_default_policy }}"
+    comment: Default policy for VPN_RULES
+  notify: Save iptables rules
+
+- name: Prevent peer-to-peer communication
+  ansible.builtin.iptables:
+    chain: AMNEZIA_FORWARD
+    in_interface: "{{ vpn_interface }}"
+    out_interface: "{{ vpn_interface }}"
+    jump: DROP
+    comment: Isolate VPN clients from each other
+  notify: Save iptables rules
+
+- name: Link AMNEZIA_FORWARD to AMNEZIA_AUTH
+  ansible.builtin.iptables:
+    chain: AMNEZIA_FORWARD
+    source: "{{ vpn_subnet_cidr }}"
+    jump: AMNEZIA_AUTH
+    comment: Send VPN traffic to Auth chain
+  notify: Save iptables rules
+
+- name: Configure Drop rule for unauthorized VPN clients
+  ansible.builtin.iptables:
+    chain: AMNEZIA_FORWARD
+    source: "{{ vpn_subnet_cidr }}"
+    jump: DROP
+    comment: Block all other forwarding traffic from VPN clients (Captive Portal policy)
+  notify: Save iptables rules
+
+- name: Route all VPN traffic to our custom chains
+  ansible.builtin.iptables:
+    chain: FORWARD
+    source: "{{ vpn_subnet_cidr }}"
+    jump: AMNEZIA_FORWARD
+    action: insert
+    rule_num: "1"
+    comment: Route all VPN traffic to our custom chains
+  notify: Save iptables rules
+
+- name: Allow Input to Captive Portal
+  ansible.builtin.iptables:
+    chain: INPUT
+    source: "{{ vpn_subnet_cidr }}"
+    destination_port: "{{ captive_portal_port }}"
+    protocol: tcp
+    jump: ACCEPT
+    comment: Allow VPN clients to reach Auth Service
+  notify: Save iptables rules

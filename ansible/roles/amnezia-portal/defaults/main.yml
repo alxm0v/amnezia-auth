@@ -7,6 +7,7 @@ vpn_port: 51820
 
 # Application Configuration
 app_install_dir: /opt/amnezia-auth
+use_systemd_credentials: false
 
 # Repository Configuration
 amnezia_ppa_key_url: "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x75C9DD72C799870E310542E24166F2C257290828"

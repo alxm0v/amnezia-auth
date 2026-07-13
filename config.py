@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     handshake_silence_threshold_seconds: int = 3600
     enable_audit_logging: bool = True
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=".env", 
+        extra="ignore",
+        secrets_dir=os.environ.get("CREDENTIALS_DIRECTORY")
+    )
 
 settings = Settings()

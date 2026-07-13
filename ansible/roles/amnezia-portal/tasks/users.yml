@@ -1,0 +1,29 @@
+---
+- name: Create amnezia-auth group
+  ansible.builtin.group:
+    name: amnezia-auth
+    system: true
+
+- name: Create amnezia-auth user
+  ansible.builtin.user:
+    name: amnezia-auth
+    group: amnezia-auth
+    system: true
+    shell: /bin/false
+    home: "{{ app_install_dir }}"
+
+- name: Create amnezia-daemon user
+  ansible.builtin.user:
+    name: amnezia-daemon
+    group: amnezia-auth
+    system: true
+    shell: /bin/false
+    home: "{{ app_install_dir }}"
+
+- name: Configure sudoers for amnezia-daemon
+  ansible.builtin.copy:
+    dest: /etc/sudoers.d/amnezia-daemon
+    content: |
+      amnezia-daemon ALL=(root) NOPASSWD: /sbin/iptables, /sbin/iptables-save, /usr/bin/awg, /bin/cat /etc/amnezia/amneziawg/awg0.conf
+    mode: '0440'
+    validate: 'visudo -cf %s'

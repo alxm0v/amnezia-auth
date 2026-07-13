@@ -1,0 +1,38 @@
+---
+- name: Install logrotate
+  ansible.builtin.apt:
+    name: logrotate
+    state: present
+  when: ansible_facts['os_family'] == "Debian"
+
+- name: Configure logrotate for amnezia-auth
+  ansible.builtin.template:
+    src: logrotate.j2
+    dest: /etc/logrotate.d/amnezia-auth
+    mode: "0644"
+
+- name: Install fail2ban
+  ansible.builtin.apt:
+    name: fail2ban
+    state: present
+    update_cache: true
+
+- name: Configure Fail2Ban filter for amnezia-portal
+  ansible.builtin.template:
+    src: fail2ban-filter.conf.j2
+    dest: /etc/fail2ban/filter.d/amnezia-portal.conf
+    mode: '0644'
+  notify: Restart fail2ban
+
+- name: Configure Fail2Ban jail
+  ansible.builtin.template:
+    src: fail2ban-jail.conf.j2
+    dest: /etc/fail2ban/jail.local
+    mode: '0644'
+  notify: Restart fail2ban
+
+- name: Start and enable fail2ban service
+  ansible.builtin.systemd:
+    name: fail2ban
+    state: started
+    enabled: true

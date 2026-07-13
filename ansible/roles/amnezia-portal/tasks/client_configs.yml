@@ -1,0 +1,18 @@
+---
+- name: Ensure local client_configs directory exists
+  ansible.builtin.file:
+    path: "{{ playbook_dir }}/client_configs"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Generate client configuration templates
+  ansible.builtin.template:
+    src: client_conf.j2
+    dest: "{{ playbook_dir }}/client_configs/{{ item.name }}.conf"
+    mode: "0600"
+  loop: "{{ vpn_peers }}"
+  delegate_to: localhost
+  become: false

@@ -1,0 +1,13 @@
+---
+- name: Ensure AmneziaWG configuration directory exists
+  ansible.builtin.file:
+    path: /etc/amnezia/amneziawg
+    state: directory
+    mode: "0700"
+
+- name: Generate awg0.conf from template
+  ansible.builtin.template:
+    src: awg0.conf.j2
+    dest: /etc/amnezia/amneziawg/awg0.conf
+    mode: "0600"
+  notify: Restart awg-quick

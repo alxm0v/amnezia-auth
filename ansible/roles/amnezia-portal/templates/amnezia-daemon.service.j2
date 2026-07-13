@@ -9,6 +9,12 @@ ExecStart={{ app_install_dir }}/venv/bin/python daemon.py
 RuntimeDirectory=amnezia-daemon
 RuntimeDirectoryMode=0750
 Restart=always
+{% if actual_use_systemd_credentials | default(false) %}
+LoadCredential=secret_key:/etc/amnezia-auth/credentials/secret_key
+{% if auth_mode == 'oidc' %}
+LoadCredential=oidc_client_secret:/etc/amnezia-auth/credentials/oidc_client_secret
+{% endif %}
+{% endif %}
 
 [Install]
 WantedBy=multi-user.target

@@ -1,0 +1,76 @@
+---
+- name: Ensure log directory exists
+  ansible.builtin.file:
+    path: /var/log/amnezia-auth
+    state: directory
+    owner: amnezia-auth
+    group: amnezia-auth
+    mode: '0775'
+    recurse: true
+
+- name: Ensure log files exist with shared permissions
+  ansible.builtin.file:
+    path: "/var/log/amnezia-auth/{{ item }}"
+    state: touch
+    owner: amnezia-auth
+    group: amnezia-auth
+    mode: '0664'
+  loop:
+    - audit.log
+    - daemon.log
+    - uvicorn.log
+
+- name: Ensure app_install_dir directory exists
+  ansible.builtin.file:
+    path: "{{ app_install_dir }}"
+    state: directory
+    owner: amnezia-auth
+    group: amnezia-auth
+    mode: "0775"
+    recurse: true
+
+- name: Copy core Python app source files
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../{{ item }}"
+    dest: "{{ app_install_dir }}/{{ item }}"
+    mode: "0644"
+  with_items:
+    - config.py
+    - daemon.py
+    - firewall.py
+    - main.py
+  notify:
+    - Restart amnezia-auth
+    - Restart amnezia-daemon
+
+- name: Create templates directory
+  ansible.builtin.file:
+    path: "{{ app_install_dir }}/templates"
+    state: directory
+    mode: "0755"
+  when: auth_mode == "totp"
+
+- name: Copy TOTP specific files
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../{{ item }}"
+    dest: "{{ app_install_dir }}/{{ item }}"
+    mode: "0644"
+  with_items:
+    - totp_routes.py
+    - templates/totp_setup.html
+    - templates/totp_login.html
+  when: auth_mode == "totp"
+  notify:
+    - Restart amnezia-auth
+
+- name: Generate requirements.txt
+  ansible.builtin.template:
+    src: requirements.txt.j2
+    dest: "{{ app_install_dir }}/requirements.txt"
+    mode: "0644"
+
+- name: Create Python virtual environment and install requirements
+  ansible.builtin.pip:
+    requirements: "{{ app_install_dir }}/requirements.txt"
+    virtualenv: "{{ app_install_dir }}/venv"
+    virtualenv_command: python3 -m venv

@@ -1,0 +1,84 @@
+---
+
+- name: Check systemd version for LoadCredential support
+  ansible.builtin.shell: set -o pipefail && systemctl --version | head -n 1 | awk '{print $2}'
+  args:
+    executable: /bin/bash
+  register: systemd_version_output
+  changed_when: false
+
+- name: Set systemd secrets support flag
+  ansible.builtin.set_fact:
+    systemd_supports_credentials: "{{ systemd_version_output.stdout | int >= 246 }}"
+
+- name: Evaluate Systemd Credentials capability
+  ansible.builtin.set_fact:
+    actual_use_systemd_credentials: "{{ use_systemd_credentials and systemd_supports_credentials }}"
+
+- name: Warn if systemd credentials requested but unsupported
+  ansible.builtin.debug:
+    msg: "WARNING: Systemd version {{ systemd_version_output.stdout }} does not support LoadCredential. Falling back to .env secrets."
+  when: use_systemd_credentials and not systemd_supports_credentials
+
+- name: Ensure systemd credentials directory exists
+  ansible.builtin.file:
+    path: /etc/amnezia-auth/credentials
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when: actual_use_systemd_credentials
+
+- name: Write secret_key to systemd credentials
+  ansible.builtin.copy:
+    content: "{{ 999999999999999999999999999 | random | to_uuid }}"
+    dest: /etc/amnezia-auth/credentials/secret_key
+    owner: root
+    group: root
+    mode: "0600"
+    force: false
+  when: actual_use_systemd_credentials
+
+- name: Write oidc_client_secret to systemd credentials
+  ansible.builtin.copy:
+    content: "{{ vault.oidc_client_secret | default(oidc_client_secret, true) }}"
+    dest: /etc/amnezia-auth/credentials/oidc_client_secret
+    owner: root
+    group: root
+    mode: "0600"
+  when: actual_use_systemd_credentials and auth_mode == 'oidc'
+
+- name: Write .env configuration file
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ app_install_dir }}/.env"
+    owner: amnezia-auth
+    group: amnezia-auth
+    mode: "0640"
+  notify:
+    - Restart amnezia-auth
+    - Restart amnezia-daemon
+
+- name: Install Systemd service for Captive Portal API
+  ansible.builtin.template:
+    src: amnezia-auth.service.j2
+    dest: /etc/systemd/system/amnezia-auth.service
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Install Systemd service for Session Tracker Daemon
+  ansible.builtin.template:
+    src: amnezia-daemon.service.j2
+    dest: /etc/systemd/system/amnezia-daemon.service
+    mode: "0644"
+  notify: Reload systemd
+
+- name: Start and enable services
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  with_items:
+    - awg-quick@awg0
+    - amnezia-auth
+    - amnezia-daemon
