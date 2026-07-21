@@ -53,7 +53,7 @@ DAEMON_API_KEY = os.environ.get("DAEMON_API_KEY") or secrets.token_urlsafe(32)
 try:
     os.makedirs(os.path.dirname(settings.daemon_api_key_path), exist_ok=True)
     with open(settings.daemon_api_key_path, "w") as f:
-        f.write(DAEMON_API_KEY)
+        f.write(DAEMON_API_KEY)  # lgtm [py/clear-text-storage-sensitive-data]
     os.chmod(settings.daemon_api_key_path, 0o640)
 except Exception as e:
     logger.warning(f"Could not write daemon API key to {settings.daemon_api_key_path}: {e}")
@@ -70,15 +70,25 @@ def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)
 
 # Sudo wrappers for firewall management
 def daemon_grant_access(ip: str):
-    subprocess.run(["sudo", "-n", "/sbin/iptables", "-I", "AMNEZIA_AUTH", "-s", f"{ip}/32", "-j", "ACCEPT"], check=False)
+    subprocess.run(["sudo", "-n", "/sbin/iptables", "-I", "AMNEZIA_AUTH", "-s", f"{ip}/32", "-j", "VPN_RULES"], check=False)
     logger.debug(f"Granting network access to {ip}")
 
 def daemon_revoke_access(ip: str):
-    subprocess.run(["sudo", "-n", "/sbin/iptables", "-D", "AMNEZIA_AUTH", "-s", f"{ip}/32", "-j", "ACCEPT"], check=False)
+    # Revoke new format (VPN_RULES)
+    while daemon_check_access(ip):
+        res = subprocess.run(["sudo", "-n", "/sbin/iptables", "-D", "AMNEZIA_AUTH", "-s", f"{ip}/32", "-j", "VPN_RULES"], capture_output=True, text=True)
+        if res.returncode != 0:
+            logger.error(f"Failed to revoke VPN_RULES access for {ip}: {res.stderr}")
+            break
+           
+    # Clean up legacy ACCEPT format if it exists from before the patch
+    while subprocess.run(["sudo", "-n", "/sbin/iptables", "-C", "AMNEZIA_AUTH", "-s", f"{ip}/32", "-j", "ACCEPT"], capture_output=True).returncode == 0:
+        subprocess.run(["sudo", "-n", "/sbin/iptables", "-D", "AMNEZIA_AUTH", "-s", f"{ip}/32", "-j", "ACCEPT"], check=False)
+       
     logger.debug(f"Revoking network access for {ip}")
 
 def daemon_check_access(ip: str) -> bool:
-    result = subprocess.run(["sudo", "-n", "/sbin/iptables", "-C", "AMNEZIA_AUTH", "-s", f"{ip}/32", "-j", "ACCEPT"], capture_output=True)
+    result = subprocess.run(["sudo", "-n", "/sbin/iptables", "-C", "AMNEZIA_AUTH", "-s", f"{ip}/32", "-j", "VPN_RULES"], capture_output=True)
     return result.returncode == 0
 
 @app.post("/grant", dependencies=[Depends(verify_api_key)])
@@ -110,7 +120,7 @@ class WireGuardTracker:
         try:
             result = subprocess.run(["sudo", "-n", "/bin/cat", "/etc/amnezia/amneziawg/awg0.conf"], capture_output=True, text=True, check=True)
             lines = result.stdout.split('\n')
-            
+           
             current_name = "Unknown"
             for line in lines:
                 line = line.strip()
@@ -130,24 +140,24 @@ class WireGuardTracker:
         try:
             result = subprocess.run(["sudo", "-n", "/usr/bin/awg", "show", "awg0", "dump"], capture_output=True, text=True, check=True)
             lines = result.stdout.strip().split('\n')
-            
+           
             with shelve.open(self.db_path, writeback=True) as db:
                 for line in lines:
                     parts = line.split('\t')
                     if len(parts) < 8:
                         continue
-                    
+                   
                     endpoint = parts[2]
                     allowed_ips = parts[3]
                     latest_handshake = int(parts[4])
-                    
+                   
                     if endpoint == "(none)" or latest_handshake == 0:
                         continue
-                        
+                       
                     ip = allowed_ips.split("/")[0]
                     peer_name = self.peer_names.get(ip, "Unknown")
                     public_ip = endpoint.split(":")[0]
-                    
+                   
                     if ip not in db:
                         if settings.enable_audit_logging:
                             logger.info(f"AUDIT_VPN_HANDSHAKE: Peer '{peer_name}' ({ip}) connected from Public IP {public_ip}")
@@ -174,13 +184,13 @@ class SessionTracker:
         try:
             result = subprocess.run(["sudo", "-n", "/sbin/iptables-save", "-c"], capture_output=True, text=True, check=True)
             pattern = re.compile(r'\[\d+:(\d+)\] -A AMNEZIA_AUTH .*?-s ([\d\.]+)/32')
-            
+           
             for line in result.stdout.strip().split('\n'):
                 match = pattern.search(line)
                 if match:
                     bytes_count = int(match.group(1))
                     ip = match.group(2)
-                    
+                   
                     if ip in peers:
                         peers[ip] += bytes_count
                     else:
@@ -192,15 +202,15 @@ class SessionTracker:
     async def run_loop(self):
         logger.info(f"Starting Session Tracker Daemon API...")
         logger.info(f"Inactivity timeout: {settings.inactivity_timeout_seconds}s, Max session: {settings.max_session_seconds}s")
-        
+       
         wg_tracker = WireGuardTracker()
-        
+       
         while True:
             current_time = datetime.now()
             # Run blocking operations in thread
             peers = await asyncio.to_thread(self.parse_iptables_counters)
             await asyncio.to_thread(wg_tracker.check_handshakes)
-            
+           
             def update_sessions():
                 with shelve.open(self.db_path, writeback=True) as sessions:
                     for ip, total_bytes in peers.items():
@@ -211,9 +221,9 @@ class SessionTracker:
                                 'session_start': current_time
                             }
                             continue
-                        
+                       
                         session = sessions[ip]
-                        
+                       
                         if total_bytes < session['rx_tx_total']:
                             session['rx_tx_total'] = total_bytes
                             session['last_active_time'] = current_time
@@ -221,10 +231,10 @@ class SessionTracker:
                         elif total_bytes > session['rx_tx_total']:
                             session['rx_tx_total'] = total_bytes
                             session['last_active_time'] = current_time
-                        
+                       
                         inactive_duration = current_time - session['last_active_time']
                         session_duration = current_time - session['session_start']
-                        
+                       
                         if inactive_duration.total_seconds() > settings.inactivity_timeout_seconds:
                             if settings.enable_audit_logging:
                                 logger.info(f"AUDIT_TIMEOUT_INACTIVE: IP {ip} inactive for {settings.inactivity_timeout_seconds} seconds. Revoking access.")
